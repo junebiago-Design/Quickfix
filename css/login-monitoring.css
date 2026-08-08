@@ -1,0 +1,334 @@
+/* ── Login Monitoring Styles ── */
+
+#page-login-monitoring .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+#page-login-monitoring .stat-card {
+    background: var(--card-bg, #fff);
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border: 1px solid var(--border, #e9ecef);
+}
+
+#page-login-monitoring .stat-icon {
+    font-size: 28px;
+    opacity: 0.8;
+}
+
+#page-login-monitoring .stat-info h4 {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text3, #868e96);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+#page-login-monitoring .stat-number {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text1, #212529);
+    display: block;
+    line-height: 1.2;
+}
+
+#page-login-monitoring .stat-sub {
+    font-size: 11px;
+    color: var(--text3, #868e96);
+    margin-top: 2px;
+}
+
+#page-login-monitoring .filter-bar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+#page-login-monitoring .filter-bar .search-wrap {
+    flex: 1;
+    min-width: 150px;
+}
+
+#page-login-monitoring .filter-select {
+    padding: 8px 12px;
+    border: 1px solid var(--border, #dee2e6);
+    border-radius: 6px;
+    background: var(--input-bg, #fff);
+    color: var(--text1, #212529);
+    font-size: 13px;
+    min-width: 140px;
+    cursor: pointer;
+}
+
+#page-login-monitoring .filter-select:focus {
+    outline: none;
+    border-color: var(--accent, #4f8ef7);
+    box-shadow: 0 0 0 3px rgba(79, 142, 247, 0.15);
+}
+
+#page-login-monitoring .table-wrap {
+    overflow-x: auto;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+#page-login-monitoring table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+#page-login-monitoring table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg2, #f8f9fa);
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text2, #495057);
+    border-bottom: 2px solid var(--border, #dee2e6);
+    z-index: 10;
+    white-space: nowrap;
+}
+
+#page-login-monitoring table td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border-light, #f1f3f5);
+    vertical-align: middle;
+}
+
+#page-login-monitoring table tr:hover td {
+    background: var(--hover-bg, rgba(0,0,0,0.02));
+}
+
+#page-login-monitoring .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+#page-login-monitoring .badge-success {
+    background: #d4edda;
+    color: #155724;
+}
+
+#page-login-monitoring .badge-danger {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+#page-login-monitoring .badge-warning {
+    background: #fff3cd;
+    color: #856404;
+}
+
+#page-login-monitoring code {
+    background: var(--bg3, #f1f3f5);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+#page-login-monitoring .empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text3, #868e96);
+}
+
+#page-login-monitoring .empty-state .es-icon {
+    font-size: 36px;
+    display: block;
+    margin-bottom: 10px;
+}
+
+#page-login-monitoring .empty-state h3 {
+    margin: 0 0 6px 0;
+    font-weight: 500;
+    color: var(--text2, #495057);
+}
+
+#page-login-monitoring .empty-state p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* ── Live status indicator (green pulse) ──
+   Used by employee-directory.js#updateEmployeeStatus for each row's
+   online/offline dot, and reused as-is inside login/logout toasts
+   (navigation.js#toast) so both surfaces show the identical signal. */
+.status-indicator {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.status-indicator.online .pulse-dot-large {
+    position: relative;
+    z-index: 1;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #28a745;
+    box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.25);
+}
+
+.status-indicator.online .pulse-ring {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: rgba(40, 167, 69, 0.45);
+    animation: status-pulse 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.status-indicator.offline .offline-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #adb5bd;
+}
+
+@keyframes status-pulse {
+    0%   { transform: scale(0.6); opacity: 0.8; }
+    70%  { transform: scale(2.4); opacity: 0; }
+    100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Toast notifications */
+#toast-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 400px;
+}
+
+#toast-container .toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s ease;
+    background: #343a40;
+}
+
+/* ⚠️ Two toast helpers exist in this app and they emit different class
+   shapes for the exact same "type" — navigation.js's global toast()
+   emits `class="toast success"` (space-separated), while
+   login-monitoring.js's local showToast() emits `class="toast
+   toast-success"` (hyphenated). Both are matched below so neither
+   helper silently falls back to the plain gray background. */
+#toast-container .toast.success,
+#toast-container .toast-success {
+    background: #28a745;
+}
+
+#toast-container .toast.error,
+#toast-container .toast-error {
+    background: #dc3545;
+}
+
+#toast-container .toast.warning,
+#toast-container .toast-warning {
+    background: #fd7e14;
+}
+
+#toast-container .toast.info,
+#toast-container .toast-info {
+    background: #17a2b8;
+}
+
+/* ── Login / Logout toasts — same green pulse used in the Employee
+   Directory, so a "someone just signed in" toast reads as the same
+   live signal everywhere in the app. ── */
+#toast-container .toast.login,
+#toast-container .toast-login {
+    background: #1f9d55;
+}
+
+#toast-container .toast.logout,
+#toast-container .toast-logout {
+    background: #4b5563;
+}
+
+#toast-container .toast.fade-out {
+    animation: slideOut 0.3s ease forwards;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #page-login-monitoring .stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+    }
+    
+    #page-login-monitoring .stat-number {
+        font-size: 20px;
+    }
+    
+    #page-login-monitoring .filter-bar {
+        flex-direction: column;
+    }
+    
+    #page-login-monitoring .filter-select {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    #page-login-monitoring table {
+        font-size: 12px;
+    }
+    
+    #page-login-monitoring table th,
+    #page-login-monitoring table td {
+        padding: 6px 8px;
+    }
+}

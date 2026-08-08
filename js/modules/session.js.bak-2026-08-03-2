@@ -1,0 +1,117 @@
+// ══════════════════════════════════════════════
+//  SESSION — js/modules/session.js
+//  Current user is injected from PHP session via window.__tmsUser,
+//  or fetched via auth.php?action=check.
+//  No employee switching – one user per session.
+//  
+//  ✅ UPDATED: Removed logActivity() for login events
+//  The server (auth.php) is now the single source of truth for
+//  login/logout activity logging. Client-side only shows toast
+//  notifications and updates the UI.
+// ══════════════════════════════════════════════
+
+let currentUser = null;
+
+// ── Async session initializer ──
+async function initSession() {
+    // 1. Check server‑injected data (index.php)
+    if (window.__tmsUser && window.__tmsUser.id) {
+        currentUser = window.__tmsUser;
+        console.log('Session: user loaded from server injection', currentUser);
+        return currentUser;
+    }
+
+    // 2. Fallback: fetch via API (if using plain HTML)
+    try {
+        const res = await fetch('auth.php?action=check');
+        const data = await res.json();
+        if (data.loggedIn && data.user) {
+            currentUser = data.user;
+            console.log('Session: user loaded via API', currentUser);
+            return currentUser;
+        }
+    } catch (err) {
+        console.warn('Session check failed:', err);
+    }
+
+    // 3. Not logged in – redirect
+    window.location.href = 'login.html';
+    return null;
+}
+
+function getCurrentUser() { return currentUser; }
+function isEmployee() { return !!(currentUser && currentUser.role === 'employee'); }
+
+// ── App entry point (called from init.js) ──
+function enterApp() {
+    if (!currentUser) {
+        window.location.href = 'login.html';
+        return;
+    }
+
+    document.getElementById('app-shell').style.display = 'flex';
+
+    // Update sidebar user info
+    const nameEl = document.getElementById('sidebar-user-name');
+    if (nameEl) {
+        const displayName = currentUser.name || currentUser.username;
+        nameEl.textContent = displayName + ' · ' + (currentUser.roleName || currentUser.role);
+    }
+
+    // Update topbar user info (already set in PHP, but keep dynamic)
+    const topbarUser = document.getElementById('topbar-user-name');
+    if (topbarUser) {
+        topbarUser.textContent = currentUser.name || currentUser.username;
+    }
+    const topbarRole = document.getElementById('topbar-user-role');
+    if (topbarRole) {
+        topbarRole.textContent = currentUser.roleName || currentUser.role;
+    }
+
+    renderNavigation();
+    seedIfEmpty();
+    navigate('dashboard');
+
+    // ── Login toast notification ──
+    // ✅ USER FEEDBACK ONLY: This shows a toast but does NOT log to activity
+    // The server (auth.php) handles all activity logging via logSystemActivity()
+    let fullName = currentUser.name || currentUser.username || 'User';
+    if (currentUser.employeeId && typeof contacts !== 'undefined') {
+        const contact = contacts.find(c => c.id === currentUser.employeeId);
+        if (contact) {
+            fullName = `${contact.lname}, ${contact.fname}`;
+        }
+    }
+    // Also try the helper from notes.js if available (it uses the same logic)
+    if (typeof getCurrentUserFullName === 'function') {
+        const helperName = getCurrentUserFullName();
+        if (helperName) fullName = helperName;
+    }
+
+    // ✅ Toast only - no database write
+    toast(`${fullName} is now login TASK MANAGER SYSTEM`, 'success');
+    
+    // ❌ REMOVED: logActivity(`${fullName} logged in`, 'accent');
+    // ✅ The server (auth.php) already logs this to the activity table
+    // via logSystemActivity() during login processing.
+    // This prevents duplicate "User logged in" entries in Recent Activity.
+
+    // ── Auto‑refresh removed — now handled by Socket.IO real‑time events ──
+    // (The 5‑second polling interval has been deleted.)
+}
+
+// ✅ Sidebar visibility now runs entirely through hasPageAccess()
+// (page-permissions.js) — the same role-inheritance-aware RBAC engine
+// that gates Kanban stage actions in permissions.js, just applied to
+// nav pages instead. This replaces the old hardcoded
+// `role === 'employee'` special case, so ANY role (not just one
+// literally named "employee") can be restricted per-page from the new
+// Page Access screen (Roles > Page Access, admin-only).
+function renderNavigation() {
+    const navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(item => {
+        const page = item.dataset.page;
+        const allowed = typeof hasPageAccess === 'function' ? hasPageAccess(page) : true;
+        item.style.display = allowed ? 'flex' : 'none';
+    });
+}

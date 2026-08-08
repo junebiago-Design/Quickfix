@@ -1,0 +1,1148 @@
+// ══════════════════════════════════════════════
+//  KANBAN (TASKS / DEALS / STAGES) — js/modules/kanban.js
+//  Full file with department auto‑load for stage roles,
+//  add‑stage permission restriction, and real‑time
+//  granular update functions (updateDealCard, appendDealCard,
+//  removeDealCard, updateStageColumn) used by socket-handler.js.
+// ══════════════════════════════════════════════
+
+let dragDealId = null;
+let draggingStageKey = null;
+let currentDealNotesId = null;
+let editingStageKey = null;
+let selectedStageColor = '#4f8ef7';
+let stageRoleRows = [];
+let dealContactRows = [];
+const STAGE_COLOR_PALETTE = ['#4f8ef7', '#a78bfa', '#f5c842', '#3ecf8e', '#f56565', '#fb923c', '#38bdf8', '#ec4899'];
+
+function getStageRoles(s) {
+    return (s?.roles && s.roles.length) ? s.roles : (s?.role ? [s.role] : []);
+}
+
+function getCurrentEmployeeId() {
+    if (!currentUser) return null;
+    return currentUser.contactId || currentUser.employeeId || null;
+}
+
+function getCurrentUserDepartment() {
+    if (!currentUser) return null;
+    const contactId = currentUser.contactId || currentUser.employeeId;
+    if (!contactId) return null;
+    const contact = contacts.find(c => c.id === contactId);
+    return contact?.department || null;
+}
+
+function getEmployeesByDepartment(departmentId) {
+    return contacts.filter(c => c.department === departmentId && c.status === 'active');
+}
+
+function getEmployeesNotInDepartment(departmentId) {
+    return contacts.filter(c => c.department !== departmentId && c.status === 'active');
+}
+
+function getUserTaskCounts(employeeId) {
+    if (!employeeId || typeof deals === 'undefined') return { completed: 0, pending: 0 };
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    let completed = 0;
+    let pending = 0;
+
+    deals.forEach(d => {
+        if (d.archived) return;
+        const assignedIds = (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+        if (!assignedIds.includes(employeeId)) return;
+
+        const isCompletedForMe = !!(d.completions && d.completions[employeeId]);
+        if (isCompletedForMe) {
+            completed++;
+            return;
+        }
+
+        const isOverdue = !!(d.due && d.due < todayStr);
+        const hasOpenNotes = (typeof notes !== 'undefined') && notes.some(n => n.dealId === d.id && n.done !== true);
+        if (isOverdue || hasOpenNotes) pending++;
+    });
+
+    return { completed, pending };
+}
+
+function isKanbanSuperuser() {
+    return currentUser.role === 'admin' || currentUser.role === SYSTEM_ROLE_ID;
+}
+
+function isAdministratorRoleSafe() {
+    if (typeof isAdministrator === 'function') return isAdministrator();
+    return isKanbanSuperuser();
+}
+
+function canActOnStage(stageOrKey) {
+    if (isKanbanSuperuser()) return true;
+    if (typeof canActOnStageGranular === 'function') return canActOnStageGranular(stageOrKey);
+    const stage = typeof stageOrKey === 'string' ? stages.find(s => s.key === stageOrKey) : stageOrKey;
+    if (!stage) return true;
+    const r = getStageRoles(stage);
+    return !r.length || r.includes(currentUser.role);
+}
+
+// ── Permission to add new stages ──────────────────────────────────────
+// System Administrator always has it; any role with canAddStage: true
+// (or inherited) also has it.
+function canAddStage() {
+    if (isKanbanSuperuser()) return true;
+    if (!currentUser || !currentUser.role) return false;
+    let roleId = currentUser.role;
+    const seen = new Set();
+    while (roleId && !seen.has(roleId)) {
+        seen.add(roleId);
+        const role = roles.find(r => r.id === roleId);
+        if (!role) break;
+        if (role.canAddStage === true) return true;
+        roleId = role.inheritsFrom || null;
+    }
+    return false;
+}
+
+// ── Department → Roles loader ──────────────────────────────────────────
+
+/**
+ * Populates stageRoleRows with all distinct role IDs from employees
+ * belonging to the given department. Duplicates are avoided.
+ */
+function loadRolesFromDepartment(departmentId) {
+    if (!departmentId) return;
+    const deptEmployees = contacts.filter(c => c.department === departmentId && c.status === 'active');
+    const roleIds = [...new Set(deptEmployees.map(c => c.role).filter(Boolean))];
+    if (!roleIds.length) {
+        toast('No active employees found in this department with assigned roles.', 'warning');
+        return;
+    }
+    const currentRoles = new Set(stageRoleRows.filter(Boolean));
+    roleIds.forEach(id => currentRoles.add(id));
+    stageRoleRows = Array.from(currentRoles);
+    renderStageRoleRows();
+    toast(`Added ${roleIds.length} role(s) from department.`, 'success');
+}
+
+// ── Modal openers ──────────────────────────────────────────────────────
+
+function openDealModal(id, defaultStage) {
+    if (isEmployee()) return;
+    const d = id ? deals.find(x => x.id === id) : null;
+    if (d && !isKanbanSuperuser() && typeof canEdit === 'function' && !canEdit(d.stage)) {
+        openDealViewOnly(id);
+        return;
+    }
+    editingId = id || null;
+    document.getElementById('deal-modal-title').textContent = d ? 'Edit Task' : 'Add Task';
+    document.getElementById('d-title').value = d?.title || '';
+    document.getElementById('d-desc').value = d?.desc || '';
+    document.getElementById('d-due').value = d?.due || new Date().toISOString().slice(0, 10);
+    document.getElementById('d-priority').value = d?.priority || 'medium';
+    populateDepartmentSelect(document.getElementById('d-department'), d?.department || '');
+
+    const stageSel = document.getElementById('d-stage');
+    stageSel.innerHTML = stages.map(s => `<option value="${s.key}">${s.label}</option>`).join('');
+    stageSel.value = d?.stage || defaultStage || stages[0]?.key || '';
+
+    if (d) {
+        dealContactRows = (d.contactIds && d.contactIds.length) ? [...d.contactIds] : (d.contactId ? [d.contactId] : []);
+    } else {
+        const currentUserId = getCurrentEmployeeId();
+        const currentDept = getCurrentUserDepartment();
+        dealContactRows = [];
+        if (currentUserId) dealContactRows.push(currentUserId);
+        if (currentDept) {
+            const deptEmployees = getEmployeesByDepartment(currentDept);
+            deptEmployees.forEach(emp => {
+                if (!dealContactRows.includes(emp.id)) dealContactRows.push(emp.id);
+            });
+        }
+    }
+    renderDealContactRows();
+
+    if (typeof renderDealModalAttachments === 'function') renderDealModalAttachments();
+
+    openModal('deal-modal');
+}
+
+function renderDealContactRows() {
+    const el = document.getElementById('d-contact-list');
+    if (!el) return;
+    const deptSelect = document.getElementById('d-department');
+    const selectedDept = deptSelect ? deptSelect.value : '';
+    const availableEmployees = selectedDept
+        ? getEmployeesNotInDepartment(selectedDept)
+        : contacts.filter(c => c.status === 'active');
+
+    if (!dealContactRows.length) {
+        el.innerHTML = `<div style="font-size:0.8rem;color:var(--text3);padding:4px 0;">Not assigned to anyone — click "+ Add Assign To" to assign.</div>`;
+        return;
+    }
+
+    el.innerHTML = dealContactRows.map((val, i) => {
+        const contact = contacts.find(c => c.id === val);
+        const isInDepartment = contact && contact.department === selectedDept;
+        const isCurrentUser = contact && contact.id === getCurrentEmployeeId();
+        let optionsHtml = '<option value="">— Select —</option>';
+        if (selectedDept) {
+            const deptEmployees = getEmployeesByDepartment(selectedDept);
+            deptEmployees.forEach(c => {
+                const selected = val === c.id ? 'selected' : '';
+                const label = isCurrentUser && c.id === getCurrentEmployeeId() ? `${c.fname} ${c.lname} (You)` : `${c.fname} ${c.lname}`;
+                optionsHtml += `<option value="${c.id}" ${selected}>${label}</option>`;
+            });
+        }
+        availableEmployees.forEach(c => {
+            const selected = val === c.id ? 'selected' : '';
+            const label = isCurrentUser && c.id === getCurrentEmployeeId() ? `${c.fname} ${c.lname} (You)` : `${c.fname} ${c.lname}`;
+            optionsHtml += `<option value="${c.id}" ${selected}>${label}</option>`;
+        });
+        if (val && !contacts.find(c => c.id === val)) {
+            optionsHtml += `<option value="${val}" selected>${val} (legacy)</option>`;
+        }
+        return `
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select onchange="updateDealContactRow(${i}, this.value)" style="flex:1;">
+          ${optionsHtml}
+        </select>
+        <span style="font-size:0.7rem;color:var(--text3);min-width:60px;">${isInDepartment ? 'Department' : 'Manual'}</span>
+        <button type="button" class="icon-btn" title="Remove this assignee" onclick="removeDealContactRow(${i})">✕</button>
+      </div>
+    `;
+    }).join('');
+}
+
+function addDealContactRow() {
+    dealContactRows.push('');
+    renderDealContactRows();
+}
+
+function removeDealContactRow(i) {
+    dealContactRows.splice(i, 1);
+    renderDealContactRows();
+}
+
+function updateDealContactRow(i, value) {
+    dealContactRows[i] = value;
+}
+
+function onDepartmentChangeForDeal() {
+    const deptSelect = document.getElementById('d-department');
+    const selectedDept = deptSelect ? deptSelect.value : '';
+    if (!editingId) {
+        const currentUserId = getCurrentEmployeeId();
+        const newRows = [];
+        if (currentUserId) newRows.push(currentUserId);
+        if (selectedDept) {
+            const deptEmployees = getEmployeesByDepartment(selectedDept);
+            deptEmployees.forEach(emp => {
+                if (!newRows.includes(emp.id)) newRows.push(emp.id);
+            });
+        }
+        dealContactRows = newRows;
+        renderDealContactRows();
+    } else {
+        renderDealContactRows();
+    }
+}
+
+function saveDeal() {
+    if (isEmployee()) return;
+    const title = document.getElementById('d-title').value.trim();
+    const due = document.getElementById('d-due').value;
+    if (!title || !due) { toast('Task title and due date are required.', 'error'); return; }
+
+    const oldDeal = editingId ? deals.find(d => d.id === editingId) : null;
+    const oldStage = oldDeal?.stage;
+
+    const obj = {
+        id: editingId || uid(),
+        title,
+        desc: document.getElementById('d-desc').value.trim(),
+        due,
+        priority: document.getElementById('d-priority').value,
+        department: document.getElementById('d-department').value,
+        contactIds: [...new Set(dealContactRows.filter(Boolean))],
+        stage: document.getElementById('d-stage').value,
+        createdAt: editingId ? (oldDeal?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    };
+
+if (editingId) {
+    if (
+        oldStage &&
+        oldStage !== obj.stage &&
+        typeof logTaskMoved === 'function'
+    ) {
+        logTaskMoved(
+            obj.id,
+            obj.title,
+            oldStage,
+            obj.stage
+        );
+    } else {
+        logActivity(
+            `Updated task <strong>${title}</strong>`,
+            'yellow'
+        );
+    }
+
+    deals = deals.map(
+        d => d.id === editingId ? obj : d
+    );
+
+    toast('Task updated.', 'success');
+
+} else {
+    deals.unshift(obj);
+
+    if (typeof logTaskCreated === 'function') {
+        logTaskCreated(
+            obj.id,
+            obj.title,
+            obj.stage
+        );
+    } else {
+        logActivity(
+            `Added task <strong>${title}</strong>`,
+            'purple'
+        );
+    }
+
+    toast('Task added.', 'success');
+}
+
+
+
+    saveAll();
+    closeModal('deal-modal');
+    renderStageColumn(obj.stage);
+    if (oldStage && oldStage !== obj.stage) renderStageColumn(oldStage);
+    updateBadges();
+    if (currentPage === 'dashboard') renderDashboard();
+}
+
+function deleteDeal(id) {
+    if (isEmployee()) return;
+    const d = deals.find(x => x.id === id);
+    if (d && !isKanbanSuperuser() && typeof canEdit === 'function' && !canEdit(d.stage)) {
+        toast('You do not have permission to delete tasks in this stage.', 'error');
+        return;
+    }
+    confirmDelete(`Delete task "${d?.title}"?`, () => {
+if (d && typeof logTaskDeleted === 'function') {
+    logTaskDeleted(id, d.title, d.stage);
+} else {
+    logActivity(
+        `Deleted task <strong>${d?.title}</strong>`,
+        'red'
+    );
+
+}
+
+deals = deals.filter(x => x.id !== id);
+        saveAll();
+        toast('Task deleted.');
+        if (d) renderStageColumn(d.stage); else renderKanban();
+        updateBadges();
+        if (currentPage === 'dashboard') renderDashboard();
+    });
+}
+
+// ══════════════════════════════════════════════
+//  ⚠️ FIXED: Double entry issue resolved
+//  logTaskMoved() now handles BOTH the taskActivity
+//  AND the main activity feed logging internally.
+//  The separate logActivity() call below has been REMOVED
+//  to prevent duplicate entries in the dashboard feed.
+//  The toast notification has also been REMOVED to prevent
+//  redundant notifications.
+// ══════════════════════════════════════════════
+function moveDealStage(dealId, newStage) {
+    const deal = deals.find(d => d.id === dealId);
+    if (!deal) return;
+    if (deal.stage === newStage) return;
+    const superuser = isKanbanSuperuser();
+    const grabOk = superuser || typeof canGrab !== 'function' || canGrab(deal.stage);
+    const dropOk = superuser || typeof canDrop !== 'function' || canDrop(newStage);
+    if (!grabOk || !dropOk) {
+        toast('You do not have permission to move this task.', 'error');
+        renderStageColumn(deal.stage);
+        return;
+    }
+
+    const oldStage = deal.stage;
+    deal.stage = newStage;
+    const oldLabel = stages.find(s => s.key === oldStage)?.label || oldStage;
+    const newLabel = stages.find(s => s.key === newStage)?.label || newStage;
+
+    // ✅ logTaskMoved handles BOTH taskActivity AND the main activity feed
+    // This prevents double entries in the dashboard Recent Activity
+    if (typeof logTaskMoved === 'function') {
+        logTaskMoved(deal.id, deal.title, oldStage, newStage);
+    }
+    
+    // ⚠️ REMOVED: Duplicate logActivity() call
+    // The logActivity is now handled inside logTaskMoved -> logTaskActivity
+    // to prevent double entries in the dashboard activity feed
+    
+    // ⚠️ REMOVED: toast notification
+    // The toast is now handled by the caller or not shown at all
+    // to prevent redundant notifications
+    
+    saveAll();
+    renderStageColumn(oldStage);
+    renderStageColumn(newStage);
+    updateBadges();
+    if (currentPage === 'dashboard') renderDashboard();
+}
+
+// ── Stage Modal (with Department auto‑load) ──────────────────────────
+
+function openStageModal(key) {
+    // ── Permission guard ──
+    if (!canAddStage()) {
+        toast('You do not have permission to add or edit stages.', 'error');
+        return;
+    }
+    if (isEmployee()) return;
+
+    editingStageKey = key || null;
+    const s = key ? stages.find(x => x.key === key) : null;
+    document.getElementById('stage-modal-title').textContent = s ? 'Edit Stage' : 'Add Stage';
+    document.getElementById('stage-name').value = s?.label || '';
+    document.getElementById('stage-final').checked = !!s?.final;
+
+    stageRoleRows = (s?.roles && s.roles.length) ? [...s.roles] : (s?.role ? [s.role] : []);
+    renderStageRoleRows();
+
+    // ── Populate and attach department auto‑load ──
+    const deptSelect = document.getElementById('stage-department-select');
+    if (deptSelect) {
+        deptSelect.innerHTML = '<option value="">— Load roles from department —</option>';
+        departments.forEach(d => {
+            if (d.id) {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.name || 'Unnamed Department';
+                deptSelect.appendChild(opt);
+            }
+        });
+        deptSelect.onchange = function() {
+            if (this.value) loadRolesFromDepartment(this.value);
+            this.value = '';
+        };
+    }
+
+    selectedStageColor = s?.color || STAGE_COLOR_PALETTE[stages.length % STAGE_COLOR_PALETTE.length];
+    renderStageColorPicker();
+
+    const delBtn = document.getElementById('stage-delete-btn');
+    delBtn.style.display = s ? '' : 'none';
+
+    const permBtn = document.getElementById('stage-permissions-btn');
+    if (permBtn) permBtn.style.display = s ? '' : 'none';
+
+    openModal('stage-modal');
+}
+
+function renderStageColorPicker() {
+    const el = document.getElementById('stage-color-picker');
+    el.innerHTML = STAGE_COLOR_PALETTE.map(c => `
+      <div class="color-swatch ${c === selectedStageColor ? 'selected' : ''}" style="background:${c}" onclick="pickStageColor('${c}')"></div>
+    `).join('');
+}
+
+function pickStageColor(c) {
+    selectedStageColor = c;
+    renderStageColorPicker();
+}
+
+function renderStageRoleRows() {
+    const el = document.getElementById('stage-role-list');
+    if (!el) return;
+    if (!stageRoleRows.length) {
+        el.innerHTML = `<div style="font-size:0.8rem;color:var(--text3);padding:4px 0;">Visible to all roles — click "+ Add Role" to restrict.</div>`;
+        return;
+    }
+    el.innerHTML = stageRoleRows.map((val, i) => `
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select onchange="updateStageRoleRow(${i}, this.value)" style="flex:1;">
+          <option value="">— Select Role —</option>
+          ${roles.map(r => `<option value="${r.id}" ${val === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+          ${val && !roles.find(r => r.id === val) ? `<option value="${val}" selected>${val} (legacy)</option>` : ''}
+        </select>
+        <button type="button" class="icon-btn" title="Remove this role" onclick="removeStageRoleRow(${i})">✕</button>
+      </div>
+    `).join('');
+}
+
+function addStageRoleRow() {
+    stageRoleRows.push('');
+    renderStageRoleRows();
+}
+
+function removeStageRoleRow(i) {
+    stageRoleRows.splice(i, 1);
+    renderStageRoleRows();
+}
+
+function updateStageRoleRow(i, value) {
+    stageRoleRows[i] = value;
+}
+
+function computeStageRoleRemovalImpact(stageKey, removedRoles) {
+    const impact = {};
+    removedRoles.forEach(r => { impact[r] = new Set(); });
+    deals.filter(d => d.stage === stageKey).forEach(d => {
+        const contactIds = (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+        contactIds.forEach(cid => {
+            const contact = contacts.find(c => c.id === cid);
+            if (contact && removedRoles.includes(contact.role)) impact[contact.role].add(d.id);
+        });
+    });
+    return impact;
+}
+
+function saveStage() {
+    if (isEmployee()) return;
+    const label = document.getElementById('stage-name').value.trim();
+    if (!label) { toast('Stage name is required.', 'error'); return; }
+    const final = document.getElementById('stage-final').checked;
+    const newRoles = [...new Set(stageRoleRows.filter(Boolean))];
+
+    if (editingStageKey) {
+        const s = stages.find(x => x.key === editingStageKey);
+        const oldRoles = getStageRoles(s);
+        const allRoleIds = roles.map(r => r.id);
+        const priorAllowed = oldRoles.length ? oldRoles : allRoleIds;
+        const nextAllowed = newRoles.length ? newRoles : allRoleIds;
+        const removedRoles = priorAllowed.filter(r => !nextAllowed.includes(r));
+
+        if (removedRoles.length) {
+            const impact = computeStageRoleRemovalImpact(editingStageKey, removedRoles);
+            const impactedEntries = removedRoles
+                .map(r => ({ roleId: r, count: impact[r].size }))
+                .filter(e => e.count > 0);
+
+            if (impactedEntries.length) {
+                const stageLabel = s?.label || label;
+                const roleNames = impactedEntries.map(e => getRoleName(e.roleId)).join(', ');
+                const lines = impactedEntries
+                    .map(e => `${e.count} task${e.count === 1 ? '' : 's'} assigned to users with the ${getRoleName(e.roleId)} role.`)
+                    .join('\n');
+                confirmDelete(
+                    `Role Restriction Warning\n\n` +
+                    `You removed access for ${roleNames} from the "${stageLabel}" stage.\n\n` +
+                    `${lines}\n\n` +
+                    `Those users will still be able to see the stage and tasks, but they will no longer be able to drag, edit, or change those tasks while they remain in this stage.`,
+                    () => commitStageSave(label, final, newRoles)
+                );
+                return;
+            }
+        }
+    }
+
+    commitStageSave(label, final, newRoles);
+}
+
+function commitStageSave(label, final, stageRoles) {
+    const wasEditing = !!editingStageKey;
+    if (editingStageKey) {
+        const s = stages.find(x => x.key === editingStageKey);
+        if (s) { s.label = label; s.color = selectedStageColor; s.final = final; s.roles = stageRoles; delete s.role; }
+        logActivity(`Renamed board stage to <strong>${label}</strong>`, 'yellow');
+        toast('Stage updated.', 'success');
+    } else {
+        const key = 'stage_' + uid();
+        // Default permissions: only System Admin
+        const defaultPermissions = {};
+        defaultPermissions[SYSTEM_ROLE_ID] = {};
+        STAGE_PERMISSION_TYPES.forEach(p => { defaultPermissions[SYSTEM_ROLE_ID][p] = true; });
+
+        stages.push({
+            key,
+            label,
+            color: selectedStageColor,
+            final,
+            roles: stageRoles,
+            permissions: defaultPermissions
+        });
+        logActivity(`Added board stage <strong>${label}</strong>`, 'purple');
+        toast('Stage added.', 'success');
+    }
+    saveAll();
+    closeModal('stage-modal');
+    const savedKey = editingStageKey;
+    editingStageKey = null;
+    if (wasEditing) renderStageColumn(savedKey); else renderKanban();
+}
+
+function deleteStageFromModal() {
+    if (!editingStageKey) return;
+    if (stages.length <= 1) { toast('You need at least one stage.', 'error'); return; }
+    const s = stages.find(x => x.key === editingStageKey);
+    const fallback = stages.find(x => x.key !== editingStageKey);
+    confirmDelete(`Delete stage "${s?.label}"? Tasks in it will move to "${fallback.label}".`, () => {
+        deals.forEach(d => { if (d.stage === editingStageKey) d.stage = fallback.key; });
+        stages = stages.filter(x => x.key !== editingStageKey);
+        saveAll();
+        toast('Stage deleted.');
+        closeModal('stage-modal');
+        editingStageKey = null;
+        renderKanban();
+        updateBadges();
+        if (currentPage === 'dashboard') renderDashboard();
+    });
+}
+
+// ── Remaining functions (pipeline, rendering, drag‑drop) ──────────────
+
+function getTopbarFilterEmployeeId() {
+    const dropdown = document.getElementById('topbar-employee-select');
+    return dropdown ? dropdown.value : '';
+}
+
+function renderPipelineSummary() {
+    const isSuperuser = isKanbanSuperuser();
+    const getDealContactIds = d => (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+    const filterEmployeeId = getTopbarFilterEmployeeId();
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const finalKeys = new Set(stages.filter(s => s.final).map(s => s.key));
+
+    const myEmployeeId = getCurrentEmployeeId();
+    const myAssignedDeals = myEmployeeId ? deals.filter(d => getDealContactIds(d).includes(myEmployeeId) && !d.archived) : [];
+    const total = myAssignedDeals.filter(d => !finalKeys.has(d.stage)).length;
+    const completed = myAssignedDeals.filter(d => finalKeys.has(d.stage)).length;
+    const overdue = myAssignedDeals.filter(d => !finalKeys.has(d.stage) && d.due && d.due < todayStr).length;
+
+    const filterContact = (filterEmployeeId && !isSuperuser) ? contacts.find(c => c.id === filterEmployeeId) : null;
+    const filterChip = filterContact ? `
+    <div class="pipe-chip" style="background:var(--accent-soft, rgba(99,102,241,0.12));">
+      <span>Filtered by</span>
+      <span class="pipe-chip-val" style="display:flex;align-items:center;gap:6px;">
+        👤 ${filterContact.fname} ${filterContact.lname}
+        <button type="button" onclick="clearTopbarEmployeeFilter()" title="Clear filter"
+          style="background:none;border:none;cursor:pointer;color:var(--text2);font-size:0.85rem;line-height:1;padding:0;">✕</button>
+      </span>
+    </div>` : '';
+
+    const myCounts = myEmployeeId ? getUserTaskCounts(myEmployeeId) : { completed: 0, pending: 0 };
+    const myCountsChips = myEmployeeId ? `
+    <div class="pipe-chip"><span>My Completed</span><span class="pipe-chip-val">${myCounts.completed}</span></div>
+    <div class="pipe-chip"><span>My Pending</span><span class="pipe-chip-val">${myCounts.pending}</span></div>` : '';
+
+    const el = document.getElementById('pipeline-summary');
+    if (el) el.innerHTML = `
+    <div class="pipe-chip"><span>Task</span><span class="pipe-chip-val">${total}</span></div>
+    <div class="pipe-chip"><span>Completed</span><span class="pipe-chip-val">${completed}</span></div>
+    <div class="pipe-chip"><span>Overdue</span><span class="pipe-chip-val">${overdue}</span></div>
+    ${myCountsChips}
+    ${filterChip}
+  `;
+}
+
+function buildKanbanRenderCtx() {
+    const employee = isEmployee();
+    const isSuperuser = isKanbanSuperuser();
+    const getDealContactIds = d => (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+    const filterEmployeeId = getTopbarFilterEmployeeId();
+    const visibleDeals = (filterEmployeeId && !isSuperuser) ? deals.filter(d => getDealContactIds(d).includes(filterEmployeeId)) : deals;
+    // Two independent rules gate which stage columns render:
+    //  1. employees never see "final" stages (unchanged legacy rule)
+    //  2. a stage can be restricted to specific roles via its "Visible to"
+    //     list (stage.roles) — canViewStage() in permissions.js resolves
+    //     that against the current user's role, honoring inheritance and
+    //     letting System Administrator see everything regardless.
+    const visibleStages = stages
+        .filter(s => !(employee && s.final))
+        .filter(s => typeof canViewStage !== 'function' || canViewStage(s));
+    return { employee, isSuperuser, visibleDeals, visibleStages, stageOptionsForDropdown: visibleStages };
+}
+
+function stageColumnInnerHTML(stage, ctx) {
+    const { employee, isSuperuser, visibleDeals, stageOptionsForDropdown } = ctx;
+    const stageDeals = visibleDeals.filter(d => d.stage === stage.key);
+    const myGrab = isSuperuser || typeof canGrab !== 'function' || canGrab(stage);
+    const myDrop = isSuperuser || typeof canDrop !== 'function' || canDrop(stage);
+    const myEdit = isSuperuser || typeof canEdit !== 'function' || canEdit(stage);
+    const permIcons = [
+        myGrab ? '' : '<span title="No Grab permission — cannot move tasks out of this stage">↗️🚫</span>',
+        myDrop ? '' : '<span title="No Drop permission — cannot move tasks into this stage">↘️🚫</span>',
+        myEdit ? '' : '<span title="No Edit permission — tasks open read-only in this stage">✎🚫</span>',
+    ].filter(Boolean).join(' ');
+    const permBadge = permIcons ? `<span style="margin-left:4px;display:inline-flex;gap:3px;font-size:0.7rem;">${permIcons}</span>` : '';
+
+    const stageVisibleRoles = getStageRoles(stage);
+    const visibilityBadge = stageVisibleRoles.length
+        ? `<span title="Only visible to: ${stageVisibleRoles.map(rid => (typeof getRoleName === 'function' ? getRoleName(rid) : rid)).join(', ')}" style="margin-left:4px;font-size:0.65rem;padding:1px 6px;border-radius:10px;background:var(--accent-soft, rgba(99,102,241,0.12));color:var(--text2);white-space:nowrap;">🔒 Restricted</span>`
+        : '';
+
+    return `
+    <div class="kanban-col-header" ${employee ? '' : `draggable="true" ondragstart="onColDragStart(event,'${stage.key}')" ondragend="onColDragEnd(event)"`}>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;">
+        ${employee ? '' : `<span class="col-drag-handle" title="Drag to reorder">⠿</span>`}
+        <span class="col-dot" style="background:${stage.color}"></span>${stage.label}
+        ${permBadge}${visibilityBadge}
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="col-count">${stageDeals.length}</span>
+        ${employee ? '' : `<button class="icon-btn" style="width:22px;height:22px;font-size:0.7rem;" onclick="openStageModal('${stage.key}')" title="Edit stage">✎</button>`}
+        ${(employee || !isAdministratorRoleSafe()) ? '' : `<button class="icon-btn" style="width:22px;height:22px;font-size:0.7rem;" onclick="openStagePermissionModal('${stage.key}')" title="Permissions">⚙</button>`}
+      </div>
+    </div>
+    <div class="kanban-cards" data-stage="${stage.key}"
+      ondragover="onDragOver(event,'${stage.key}')" ondrop="onDrop(event,'${stage.key}')" ondragleave="onDragLeave(event)">
+      ${stageDeals.map(d => dealCardHTML(d, stage, employee, stageOptionsForDropdown)).join('')}
+    </div>
+    ${(employee || !(myDrop || myEdit)) ? '' : `<button class="kanban-add-btn" onclick="openDealModal(null,'${stage.key}')">+ Add task</button>`}
+  `;
+}
+
+function stageColumnHTML(stage, ctx) {
+    const { employee } = ctx;
+    return `
+      <div class="kanban-col" data-stage-key="${stage.key}"
+        ${employee ? '' : `ondragover="onColDragOver(event,'${stage.key}')" ondrop="onColDrop(event,'${stage.key}')" ondragleave="onColDragLeave(event)"`}>
+        ${stageColumnInnerHTML(stage, ctx)}
+      </div>
+    `;
+}
+
+function renderStageColumn(stageKey) {
+    const stage = stages.find(s => s.key === stageKey);
+    const col = document.querySelector(`.kanban-col[data-stage-key="${stageKey}"]`);
+    if (!stage || !col) { renderKanban(); return; }
+    const ctx = buildKanbanRenderCtx();
+    if (!ctx.visibleStages.includes(stage)) { renderKanban(); return; }
+    col.innerHTML = stageColumnInnerHTML(stage, ctx);
+    renderPipelineSummary();
+}
+
+function renderKanban() {
+    const ctx = buildKanbanRenderCtx();
+    const { employee, visibleStages } = ctx;
+    renderPipelineSummary();
+
+    const addBtn = document.getElementById('deals-add-btn');
+    if (addBtn) addBtn.style.display = employee ? 'none' : '';
+
+    const board = document.getElementById('kanban-board');
+    // ── Only show "+ Add Stage" if user has permission ──
+    board.innerHTML = visibleStages.map(stage => stageColumnHTML(stage, ctx)).join('') + 
+        (employee || !canAddStage() ? '' : `
+      <div class="kanban-col kanban-col-add">
+        <button class="kanban-add-stage-btn" onclick="openStageModal()">+ Add Stage</button>
+      </div>
+    `);
+
+    const boardEl = document.getElementById('kanban-board');
+    const hint = document.querySelector('.kanban-scroll-hint');
+    if (boardEl && window.innerWidth > 768) {
+        const hasOverflow = boardEl.scrollWidth > boardEl.clientWidth;
+        if (hasOverflow) {
+            boardEl.classList.add('scrollable');
+            if (hint) hint.classList.add('visible');
+        } else {
+            boardEl.classList.remove('scrollable');
+            if (hint) hint.classList.remove('visible');
+        }
+    } else {
+        if (boardEl) boardEl.classList.remove('scrollable');
+        if (hint) hint.classList.remove('visible');
+    }
+}
+
+// ── Real-time granular updates (called from js/modules/socket-handler.js) ──
+// These avoid a full renderKanban() board rebuild on every remote change.
+// Where a card stays in the same column we patch just that card's DOM
+// node via dealCardHTML(); a stage change (or any case where we can't
+// safely target one node) falls back to renderStageColumn(), which is
+// still far cheaper than a full board re-render.
+
+function updateDealCard(dealId, newData) {
+    const idx = deals.findIndex(d => d.id === dealId);
+    if (idx === -1) {
+        // We don't have this deal locally yet — treat it as a create.
+        appendDealCard(newData, newData.stage);
+        return;
+    }
+    const oldStage = deals[idx].stage;
+    deals[idx] = { ...deals[idx], ...newData };
+    const newStage = deals[idx].stage;
+
+    if (oldStage !== newStage) {
+        renderStageColumn(oldStage);
+        renderStageColumn(newStage);
+    } else {
+        const stage = stages.find(s => s.key === newStage);
+        const cardEl = document.querySelector(`.deal-card[data-id="${dealId}"]`);
+        const ctx = buildKanbanRenderCtx();
+        if (cardEl && stage && ctx.visibleStages.includes(stage)) {
+            cardEl.outerHTML = dealCardHTML(deals[idx], stage, ctx.employee, ctx.stageOptionsForDropdown);
+        } else {
+            renderStageColumn(newStage);
+        }
+    }
+
+    updateBadges();
+    if (currentPage === 'dashboard' && typeof renderDashboard === 'function') renderDashboard();
+}
+
+function appendDealCard(dealData, stageKey) {
+    if (deals.some(d => d.id === dealData.id)) {
+        updateDealCard(dealData.id, dealData);
+        return;
+    }
+    const stage = stageKey || dealData.stage;
+    deals.unshift({ ...dealData, stage });
+    renderStageColumn(stage);
+    updateBadges();
+    if (currentPage === 'dashboard' && typeof renderDashboard === 'function') renderDashboard();
+}
+
+function removeDealCard(dealId) {
+    const deal = deals.find(d => d.id === dealId);
+    deals = deals.filter(d => d.id !== dealId);
+    if (deal) {
+        renderStageColumn(deal.stage);
+    } else {
+        // Not in local cache (e.g. filtered out of this user's view) —
+        // remove the DOM node directly if it happens to be present.
+        document.querySelector(`.deal-card[data-id="${dealId}"]`)?.remove();
+    }
+    updateBadges();
+    if (currentPage === 'dashboard' && typeof renderDashboard === 'function') renderDashboard();
+}
+
+// Public entry point for stage-level changes (permissions, roles,
+// visibility, reordering) rather than a single deal — just a named
+// alias so socket-handler.js doesn't need to know about renderStageColumn.
+function updateStageColumn(stageKey) {
+    renderStageColumn(stageKey);
+}
+
+function dealCardHTML(d, stage, employee, stageOptions) {
+    const dealContactIds = (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+    const cname = dealContactIds.map(id => getContactName(id)).filter(Boolean).join(', ');
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isOverdue = !stage.final && d.due < todayStr;
+
+    const superuser = isKanbanSuperuser();
+    const canGrabHere = superuser || typeof canGrab !== 'function' || canGrab(stage);
+    const canEditHere = superuser || typeof canEdit !== 'function' || canEdit(stage);
+    const canCommentHere = superuser || typeof canComment !== 'function' || canComment(stage);
+    const canRevisionHere = superuser || typeof canRevision !== 'function' || canRevision(stage);
+    const canManage = canGrabHere || canEditHere;
+
+    const stageOpts = stageOptions
+        .filter(s => s.key === d.stage || superuser || typeof canDrop !== 'function' || canDrop(s))
+        .map(s => `<option value="${s.key}" ${s.key === d.stage ? 'selected' : ''}>${s.label}</option>`)
+        .join('');
+
+    const dropdownHtml = `
+    <select class="deal-stage-select" onchange="moveDealStage('${d.id}', this.value)"
+            title="${canGrabHere ? 'Move to another stage' : "You don't have Grab permission in this stage"}"
+            ${canGrabHere ? '' : 'disabled'}>
+      ${stageOpts}
+    </select>
+  `;
+
+    const dealNotes = notes.filter(n => n.dealId === d.id);
+
+    const completionBadges = Object.values(d.completions || {})
+        .map(c => `<span class="badge badge-completed-role" style="background:rgba(62,207,142,0.15);color:var(--text2);border:1px solid rgba(62,207,142,0.4);" title="Completed for the ${c.roleName || c.role} role">✅ ${c.roleName || c.role}</span>`)
+        .join('');
+
+    const assigneeInitials = dealContactIds.slice(0, 3).map(id => initials(getContactName(id) || '')).filter(Boolean);
+    const assigneeHTML = assigneeInitials.length ? `
+      <span class="deal-card-assignee" title="${cname}">
+        👤 ${assigneeInitials.join(' ')}${dealContactIds.length > 3 ? ` +${dealContactIds.length - 3}` : ''}
+      </span>` : '';
+
+    return `
+    <div class="deal-card ${canEditHere ? '' : 'deal-card-readonly'}" draggable="${canGrabHere ? 'true' : 'false'}"
+      data-id="${d.id}"
+      ${canGrabHere ? `
+      ondragstart="onDragStart(event,'${d.id}')" ondragend="onDragEnd(event)"
+      ondragover="onCardDragOver(event,'${d.id}','${stage.key}')" ondrop="onCardDrop(event,'${d.id}','${stage.key}')"` : ''}
+      ${canManage ? '' : `title="You don't have permission to drag or edit tasks in this stage"`}>
+      <div class="deal-card-title" onclick="openDealViewOnly('${d.id}')" style="cursor:pointer;">${d.title} ${canEditHere ? '' : `<span title="Read-only in this stage" style="font-size:0.7rem;">🔒</span>`}</div>
+
+      ${completionBadges ? `<div class="deal-card-badges">${completionBadges}</div>` : ''}
+
+      <div class="deal-card-meta">
+        <span class="task-due ${isOverdue?'overdue':''}" style="font-family:'DM Mono',monospace;">📅 ${fmtDate(d.due)}</span>
+        ${priorityBadge(d.priority)}
+        ${assigneeHTML}
+      </div>
+
+      <div class="deal-card-meta deal-card-meta-actions">
+        ${dropdownHtml}
+        ${employee ? '' : canEditHere ? `
+        <div class="deal-actions">
+          <button class="icon-btn" style="width:24px;height:24px;font-size:0.75rem;" onclick="openDealModal('${d.id}')" title="Edit">✎</button>
+          <button class="icon-btn danger" style="width:24px;height:24px;font-size:0.75rem;" onclick="deleteDeal('${d.id}')" title="Delete">🗑</button>
+        </div>` : `
+        <div class="deal-actions">
+          <button class="icon-btn" style="width:24px;height:24px;font-size:0.75rem;" onclick="openDealViewOnly('${d.id}')" title="View (read-only — you lack Edit permission in this stage)">👁</button>
+        </div>`}
+      </div>
+
+      <button class="deal-notes-toggle deal-card-notes-compact" onclick="openDealNotesModal('${d.id}')" title="View comments &amp; revisions">
+        <span>💬 Notes</span>
+        <span class="deal-notes-count">${dealNotes.length}</span>
+      </button>
+      <button class="deal-notes-toggle deal-card-notes-compact" onclick="openFilesModal('${d.id}')" title="View attached files">
+        <span>📎 Files</span>
+        <span class="deal-notes-count">${typeof getDealFiles === 'function' ? getDealFiles(d.id).length : 0}</span>
+      </button>
+    </div>
+  `;
+}
+
+function dealNotesListHTML(dealNotes, employee) {
+    if (!dealNotes.length) {
+        return `<div class="deal-notes-empty">No comments or revisions linked to this task yet.</div>`;
+    }
+    return dealNotes.map(n => `
+    <div class="deal-note-item">
+      <div class="deal-note-item-main" onclick="openNoteModal('${n.id}')">
+        <div class="deal-note-item-title">${n.title} ${typeof noteTypeBadge === 'function' ? noteTypeBadge(n) : ''}</div>
+        <div class="deal-note-item-preview">${n.content.slice(0, 70)}${n.content.length > 70 ? '…' : ''}</div>
+      </div>
+      ${employee ? '' : `
+      <div class="deal-note-item-actions">
+        <button class="icon-btn" style="width:22px;height:22px;font-size:0.65rem;" onclick="event.stopPropagation();openNoteModal('${n.id}')" title="Edit">✎</button>
+        <button class="icon-btn danger" style="width:22px;height:22px;font-size:0.65rem;" onclick="event.stopPropagation();deleteNote('${n.id}')" title="Delete">🗑</button>
+      </div>`}
+    </div>
+  `).join('');
+}
+
+function openDealNotesModal(dealId) {
+    currentDealNotesId = dealId;
+    const deal = deals.find(d => d.id === dealId);
+    document.getElementById('deal-notes-modal-title').textContent = deal ? `Notes — ${deal.title}` : 'Notes';
+    renderDealNotesModalList();
+    openModal('deal-notes-modal');
+}
+
+function renderDealNotesModalList() {
+    if (!currentDealNotesId) return;
+    const employee = isEmployee();
+    const commentsEl = document.getElementById('deal-notes-modal-list-comments');
+    const revisionsEl = document.getElementById('deal-notes-modal-list-revisions');
+
+    if (commentsEl || revisionsEl) {
+        if (commentsEl) commentsEl.innerHTML = dealNotesListHTML(getDealComments(currentDealNotesId), employee);
+        if (revisionsEl) revisionsEl.innerHTML = dealNotesListHTML(getDealRevisions(currentDealNotesId), employee);
+        return;
+    }
+
+    const listEl = document.getElementById('deal-notes-modal-list');
+    if (!listEl) return;
+    const dealNotes = notes.filter(n => n.dealId === currentDealNotesId);
+    listEl.innerHTML = dealNotesListHTML(dealNotes, employee);
+}
+
+function switchDealNotesTab(tab) {
+    document.querySelectorAll('#deal-notes-modal .deal-notes-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    const commentsEl = document.getElementById('deal-notes-modal-list-comments');
+    const revisionsEl = document.getElementById('deal-notes-modal-list-revisions');
+    if (commentsEl) commentsEl.style.display = tab === 'comments' ? '' : 'none';
+    if (revisionsEl) revisionsEl.style.display = tab === 'revisions' ? '' : 'none';
+    const addCommentBtn = document.getElementById('deal-notes-add-comment-btn');
+    const addRevisionBtn = document.getElementById('deal-notes-add-revision-btn');
+    if (addCommentBtn) addCommentBtn.style.display = tab === 'comments' ? '' : 'none';
+    if (addRevisionBtn) addRevisionBtn.style.display = tab === 'revisions' ? '' : 'none';
+}
+
+function closeDealNotesModal() {
+    closeModal('deal-notes-modal');
+}
+
+// ── Drag & Drop helpers ──
+
+function onDragStart(e, id) {
+    const deal = deals.find(d => d.id === id);
+    if (deal && !isKanbanSuperuser() && typeof canGrab === 'function' && !canGrab(deal.stage)) {
+        e.preventDefault();
+        return;
+    }
+    dragDealId = id;
+    setTimeout(() => e.target.classList.add('dragging'), 0);
+    document.getElementById('kanban-board')?.classList.add('dnd-active');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragEnd(e) {
+    e.target.classList.remove('dragging');
+    document.querySelectorAll('.kanban-cards').forEach(c => c.classList.remove('drag-over'));
+    document.querySelectorAll('.deal-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+    document.getElementById('kanban-board')?.classList.remove('dnd-active');
+    dragDealId = null;
+}
+
+function onDragOver(e, stage) {
+    if (draggingStageKey) return;
+    if (stage && !isKanbanSuperuser() && typeof canDrop === 'function' && !canDrop(stage)) return;
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+    if (draggingStageKey) return;
+    e.currentTarget.classList.remove('drag-over');
+}
+
+function onDrop(e, stage) {
+    if (draggingStageKey) return;
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (!dragDealId) return;
+    if (!isKanbanSuperuser() && typeof canDrop === 'function' && !canDrop(stage)) {
+        toast("You don't have permission to move tasks into this stage.", 'error');
+        dragDealId = null;
+        return;
+    }
+    appendDealToStageEnd(dragDealId, stage);
+    dragDealId = null;
+}
+
+function onCardDragOver(e, overId, stage) {
+    if (draggingStageKey || !dragDealId || dragDealId === overId) return;
+    if (stage && !isKanbanSuperuser() && typeof canDrop === 'function' && !canDrop(stage)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const before = e.clientY < (rect.top + rect.height / 2);
+    document.querySelectorAll('.deal-card').forEach(c => c.classList.remove('drop-before', 'drop-after'));
+    card.classList.add(before ? 'drop-before' : 'drop-after');
+}
+
+function onCardDrop(e, overId, stage) {
+    if (draggingStageKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.closest('.kanban-cards')?.classList.remove('drag-over');
+    if (!dragDealId || dragDealId === overId) { dragDealId = null; return; }
+    if (!isKanbanSuperuser() && typeof canDrop === 'function' && !canDrop(stage)) {
+        toast("You don't have permission to move tasks into this stage.", 'error');
+        dragDealId = null;
+        return;
+    }
+    const before = e.currentTarget.classList.contains('drop-before');
+    reorderDeal(dragDealId, overId, before, stage);
+    dragDealId = null;
+}
+
+function reorderDeal(dealId, overId, before, stage) {
+    const deal = deals.find(d => d.id === dealId);
+    const overDeal = deals.find(d => d.id === overId);
+    if (!deal || !overDeal) return;
+
+    const oldStage = deal.stage;
+    const changedStage = oldStage !== stage;
+    deal.stage = stage;
+
+    deals = deals.filter(d => d.id !== dealId);
+    let idx = deals.findIndex(d => d.id === overId);
+    if (idx === -1) idx = deals.length;
+    if (!before) idx += 1;
+    deals.splice(idx, 0, deal);
+
+    if (changedStage) {
+        const oldLabel = stages.find(s => s.key === oldStage)?.label || oldStage;
+        const newLabel = stages.find(s => s.key === stage)?.label || stage;
+        if (typeof logTaskMoved === 'function') logTaskMoved(deal.id, deal.title, oldStage, stage);
+        // ✅ logTaskMoved now handles the activity feed logging internally
+        // No duplicate logActivity call here
+        toast(`Moved to ${newLabel}`, 'success');
+    }
+
+    saveAll();
+    renderStageColumn(stage);
+    if (changedStage) renderStageColumn(oldStage);
+    updateBadges();
+    if (currentPage === 'dashboard') renderDashboard();
+}
+
+function appendDealToStageEnd(dealId, stage) {
+    const deal = deals.find(d => d.id === dealId);
+    if (!deal) return;
+
+    const oldStage = deal.stage;
+    const changedStage = oldStage !== stage;
+    deal.stage = stage;
+
+    deals = deals.filter(d => d.id !== dealId);
+    let lastIdx = -1;
+    deals.forEach((d, i) => { if (d.stage === stage) lastIdx = i; });
+    deals.splice(lastIdx + 1, 0, deal);
+
+    if (changedStage) {
+        const oldLabel = stages.find(s => s.key === oldStage)?.label || oldStage;
+        const newLabel = stages.find(s => s.key === stage)?.label || stage;
+        if (typeof logTaskMoved === 'function') logTaskMoved(deal.id, deal.title, oldStage, stage);
+        // ✅ logTaskMoved now handles the activity feed logging internally
+        // No duplicate logActivity call here
+        toast(`Moved to ${newLabel}`, 'success');
+    }
+
+    saveAll();
+    renderStageColumn(stage);
+    if (changedStage) renderStageColumn(oldStage);
+    updateBadges();
+    if (currentPage === 'dashboard') renderDashboard();
+}
+
+// ── Stage column drag & drop ──
+
+function onColDragStart(e, key) {
+    draggingStageKey = key;
+    e.stopPropagation();
+    const col = e.currentTarget.closest('.kanban-col');
+    setTimeout(() => col && col.classList.add('col-dragging'), 0);
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function onColDragEnd(e) {
+    document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('col-dragging', 'col-drag-over'));
+    draggingStageKey = null;
+}
+
+function onColDragOver(e, key) {
+    if (!draggingStageKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (key !== draggingStageKey) e.currentTarget.classList.add('col-drag-over');
+}
+
+function onColDragLeave(e) {
+    if (!draggingStageKey) return;
+    e.currentTarget.classList.remove('col-drag-over');
+}
+
+function onColDrop(e, key) {
+    if (!draggingStageKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.classList.remove('col-drag-over');
+
+    const fromKey = draggingStageKey;
+    draggingStageKey = null;
+    if (fromKey === key) return;
+
+    const fromIdx = stages.findIndex(s => s.key === fromKey);
+    const toIdx = stages.findIndex(s => s.key === key);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [moved] = stages.splice(fromIdx, 1);
+    stages.splice(toIdx, 0, moved);
+
+    saveAll();
+    renderKanban();
+    toast('Stage order updated.', 'success');
+}

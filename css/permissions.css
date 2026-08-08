@@ -1,0 +1,187 @@
+/* ══════════════════════════════════════════════
+   PERMISSIONS — css/permissions.css
+   Phase 10. Append into style.css (or <link> this file after it).
+   Reuses your existing CSS custom properties (--text2, --text3,
+   --accent-soft, --border, --bg2, etc.) so it inherits your current
+   theme automatically — no new variables introduced.
+   ══════════════════════════════════════════════ */
+
+/* ── Stage Permission Modal / Matrix (Phase 5/9) ── */
+#stage-permission-modal .modal-body {
+    overflow-x: auto;
+}
+
+.permission-matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.permission-matrix th,
+.permission-matrix td {
+    padding: 8px 10px;
+    text-align: center;
+    border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+    white-space: nowrap;
+}
+
+.permission-matrix th:first-child,
+.permission-matrix td:first-child {
+    text-align: left;
+    font-weight: 600;
+}
+
+.permission-matrix thead th {
+    color: var(--text2);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.permission-matrix tbody tr:hover {
+    background: var(--accent-soft, rgba(99,102,241,0.06));
+}
+
+.permission-matrix input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--accent, #6366f1);
+}
+
+.permission-matrix input[type="checkbox"]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* ── Permission Warning dialog (Phase 8/13) ── */
+.permission-warning-list {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--accent-soft, rgba(245,158,11,0.1));
+    border: 1px solid rgba(245,158,11,0.35);
+    font-size: 0.85rem;
+    white-space: pre-line;
+}
+
+/* ── Locked stage / restriction badges (Phase 9) ── */
+.stage-permission-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 4px;
+    font-size: 0.7rem;
+}
+
+.restriction-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--accent-soft, rgba(239,68,68,0.12));
+    color: var(--text2);
+    white-space: nowrap;
+}
+
+.kanban-col.stage-locked .kanban-col-header {
+    opacity: 0.85;
+}
+
+/* ── Read-only task card / view modal (Phase 4/9) ── */
+.deal-card-readonly {
+    opacity: 0.92;
+    cursor: default;
+    border-style: dashed;
+}
+
+.deal-card-readonly:hover {
+    outline: 1px dashed var(--text3);
+}
+
+#deal-view-modal .deal-view-field {
+    padding: 6px 0;
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--border, rgba(255,255,255,0.06));
+}
+
+#deal-view-modal .deal-view-field strong {
+    color: var(--text2);
+    margin-right: 6px;
+}
+
+/* ── Comment / Revision badges (Phase 6/9) ── */
+.note-type-badge,
+.deal-note-item .restriction-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.note-type-badge.comment {
+    background: var(--accent-soft, rgba(99,102,241,0.12));
+    color: var(--text2);
+}
+
+.note-type-badge.revision {
+    background: rgba(245,158,11,0.15);
+    color: var(--text2);
+}
+
+/* ── Comments / Revisions tabs inside the Deal Notes modal ── */
+.deal-notes-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+}
+
+.deal-notes-tab {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text3);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+
+.deal-notes-tab.active {
+    color: var(--text1, #fff);
+    border-bottom-color: var(--accent, #6366f1);
+}
+
+/* ── Tooltip helper for disabled/permission-gated controls ── */
+[title].permission-tooltip {
+    position: relative;
+    cursor: not-allowed;
+}
+
+/* ── Attachments (Files / Images) — Phase Upload ── */
+#deal-files-upload-btn:disabled,
+#file-upload-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.deal-notes-toggle .deal-notes-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    background: var(--accent-soft, rgba(99,102,241,0.15));
+    color: var(--text2);
+}
+
+#f-upload {
+    padding: 6px 0;
+}
