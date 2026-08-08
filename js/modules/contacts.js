@@ -48,7 +48,29 @@ function saveContact() {
     const fname = document.getElementById('c-fname').value.trim();
     const lname = document.getElementById('c-lname').value.trim();
     const email = document.getElementById('c-email').value.trim();
-    if (!fname || !lname || !email) { toast('Please fill required fields.', 'error'); return; }
+    const role = document.getElementById('c-role').value;
+
+    // ── Required fields ──
+    if (!fname || !lname || !email) {
+        toast('First name, last name, and email are required.', 'error');
+        return;
+    }
+    if (!role) {
+        toast('Please select a role for this employee.', 'error');
+        return;
+    }
+
+    // ── Duplicate email check ──
+    if (isContactEmailTaken(email, editingId)) {
+        toast('An employee with this email already exists.', 'error');
+        return;
+    }
+
+    // ── Duplicate full name check ──
+    if (isContactNameTaken(fname, lname, editingId)) {
+        toast('An employee with this full name already exists.', 'error');
+        return;
+    }
 
     const obj = {
         id: editingId || uid(),
@@ -59,7 +81,7 @@ function saveContact() {
         phone: document.getElementById('c-phone').value.trim(),
         company: document.getElementById('c-company').value.trim(),
         department: document.getElementById('c-department').value,
-        role: document.getElementById('c-role').value,
+        role: role,
         status: document.getElementById('c-status').value,
         createdAt: editingId ? (contacts.find(c => c.id === editingId)?.createdAt || new Date().toISOString()) :
             new Date().toISOString(),

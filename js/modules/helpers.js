@@ -160,6 +160,21 @@ function isContactEmailTaken(email, excludeId) {
     return contacts.some(c => c.email.trim().toLowerCase() === lower && c.id !== excludeId);
 }
 
+/**
+ * Check if a contact's full name (first + last) is already taken.
+ * Case‑insensitive, trims whitespace, excludes the current record when editing.
+ */
+function isContactNameTaken(fname, lname, excludeId) {
+    const trimmedF = fname.trim();
+    const trimmedL = lname.trim();
+    if (!trimmedF || !trimmedL) return false;
+    const lowerFull = `${trimmedF} ${trimmedL}`.toLowerCase();
+    return contacts.some(c => {
+        const full = `${c.fname.trim()} ${c.lname.trim()}`.toLowerCase();
+        return full === lowerFull && c.id !== excludeId;
+    });
+}
+
 function isDealTitleTaken(title, excludeId) {
     const trimmed = title.trim();
     if (!trimmed) return false;
@@ -172,4 +187,12 @@ function isUsernameTaken(username, excludeId) {
     if (!trimmed) return false;
     const lower = trimmed.toLowerCase();
     return users.some(u => u.username.trim().toLowerCase() === lower && u.id !== excludeId);
+}
+
+/**
+ * Check if a given employee already has a user account linked.
+ */
+function employeeHasUser(employeeId) {
+    if (!employeeId) return false;
+    return users.some(u => u.employeeId === employeeId);
 }

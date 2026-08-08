@@ -262,11 +262,20 @@ function onDepartmentChangeForDeal() {
     }
 }
 
+// ══════════════════════════════════════════════
+//  SAVE DEAL — with duplicate title check
+// ══════════════════════════════════════════════
 function saveDeal() {
     if (isEmployee()) return;
     const title = document.getElementById('d-title').value.trim();
     const due = document.getElementById('d-due').value;
     if (!title || !due) { toast('Task title and due date are required.', 'error'); return; }
+
+    // ── Duplicate title check ──
+    if (isDealTitleTaken(title, editingId)) {
+        toast('A task with this title already exists.', 'error');
+        return;
+    }
 
     const prevDeal = editingId ? deals.find(d => d.id === editingId) : null;
     const obj = {
