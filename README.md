@@ -1,25 +1,46 @@
-System-wide duplicate validation has been implemented across all primary entities to prevent duplicate records, sanitize string inputs, and support seamless self-edits.
+**System-Wide Duplicate Validation & Entity Integrity Updates**
 
-**Validation Standards**
+This release implements a standardized duplicate-prevention framework across all core entities (Companies, Departments, Roles, Contacts, Deals/Tasks, and Users). The updates introduce targeted helper functions, strict field requirements, and explicit entity-linking safeguards to ensure data integrity during record creation and modification.
 
-* **Sanitization:** All checks trim leading and trailing whitespace and run case-insensitive comparisons.
-* **Edit Exclusions:** Logic excludes the record currently being updated (e.g., using `editingId`), ensuring self-saves do not trigger duplicate errors.
-* **Error Handling:** When a duplicate is detected, a toast error notification displays and the save operation immediately aborts.
+### Entity Validation Matrix
 
-**Entity Check Mapping**
-
-| Entity | Check Function | Target Function | Logic Notes |
+| Entity | Validation Function | Executed In | Primary Uniqueness Criteria |
 | --- | --- | --- | --- |
-| **Company** | `isCompanyNameTaken()` | `saveCompany()` | Prevents duplicate company names |
-| **Department** | `isDepartmentNameTaken()` | `saveDepartment()` | Prevents duplicate department names |
-| **Role** | `isRoleNameTaken()` | `saveRole()` | Prevents duplicate role names |
-| **Contact** | `isContactEmailTaken()`, `isContactNameTaken()` | `saveContact()` | Prevents duplicate emails and full names |
-| **Deal / Task** | `isDealTitleTaken()` | `saveDeal()` | Prevents duplicate deal/task titles |
-| **User** | `isUsernameTaken()` | `saveUser()` | Prevents duplicate usernames |
+| **Company** | `isCompanyNameTaken()` | `saveCompany()` | Company Name |
+| **Department** | `isDepartmentNameTaken()` | `saveDepartment()` | Department Name |
+| **Role** | `isRoleNameTaken()` | `saveRole()` | Role Name |
+| **Contact** | `isContactEmailTaken()`, `isContactNameTaken()` | `saveContact()` | Email Address & Full Name |
+| **Deal (Task)** | `isDealTitleTaken()` | `saveDeal()` | Task / Deal Title |
+| **User** | `isUsernameTaken()` | `saveUser()` | Username |
 
-**File-Level Modifications**
+---
 
-* **`helpers.js`**: Added `isContactNameTaken()` and `employeeHasUser()` helper functions.
-* **`contacts.js`**: Implemented the duplicate full-name check in `saveContact()` and updated the **Role** field to be required.
-* **`users.js`**: Integrated the duplicate username check in `saveUser()` and added logic using `employeeHasUser()` to prevent linking a user to an employee already assigned to an account.
-* **`kanban.js`**: Added title duplicate checking via `isDealTitleTaken(title, editingId)` inside `saveDeal()`.
+### File-by-File Technical Changes
+
+* **`helpers.js`**
+* Added `isContactNameTaken()` to evaluate full-name collisions across contact records.
+* Added `employeeHasUser()` to check existing user-to-employee mapping relationships.
+
+
+* **`contacts.js`**
+* Integrated `isContactNameTaken()` into `saveContact()` to prevent duplicate contact entries by full name.
+* Updated validation rules to make the **Role** field strictly required upon saving.
+
+
+* **`users.js`**
+* Integrated `isUsernameTaken()` within `saveUser()` to enforce unique system usernames.
+* Implemented a constraint using `employeeHasUser()` to prevent linking a single employee profile to multiple user accounts.
+
+
+* **`kanban.js`**
+* Updated `saveDeal()` to pass `(title, editingId)` into `isDealTitleTaken()`, enforcing unique task titles within the Kanban workflow while preserving normal file operational logic.
+
+
+
+---
+
+### Global Validation Standards & Execution Behavior
+
+* **String Normalization:** All text comparisons sanitize inputs by trimming leading and trailing whitespace and performing case-insensitive matching.
+* **Self-Edit Preservation:** Validation queries explicitly pass the `editingId` parameter to exclude the active record during updates, preventing false-positive duplicate flags when saving unchanged fields.
+* **Transaction Flow & Error Handling:** If a duplicate condition or restricted link is identified, execution halts immediately, preventing the save payload from committing, and a user-facing toast notification displays the specific validation error.
