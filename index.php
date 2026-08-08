@@ -124,6 +124,8 @@ $user = $_SESSION['user'];
                         <span class="pulse-dot"></span>
                         <span>Live</span>
                     </div>
+                    <!-- NEW: Reload Data button -->
+                    <button class="btn btn-danger" onclick="reloadData()" style="font-size:0.8rem;">⟳ Reload Data</button>
                     <button class="btn btn-ghost" onclick="logout()" style="font-size:0.8rem;">Logout</button>
                 </div>
                 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
