@@ -35,6 +35,12 @@ function saveDepartment() {
     const name = document.getElementById('dep-name').value.trim();
     if (!name) { toast('Department name is required.', 'error'); return; }
 
+    // ── Duplicate check ──
+    if (isDepartmentNameTaken(name, editingId)) {
+        toast('A department with this name already exists.', 'error');
+        return;
+    }
+
     const obj = {
         id: editingId || uid(),
         name,
@@ -107,4 +113,3 @@ function renderDepartments() {
   `;
     }).join('');
 }
-

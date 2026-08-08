@@ -128,3 +128,48 @@ function populateCompanySelect(selectEl, selected) {
     }
 }
 
+// ══════════════════════════════════════════════
+//  DUPLICATE VALIDATION HELPERS
+// ══════════════════════════════════════════════
+
+function isCompanyNameTaken(name, excludeId) {
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    return companies.some(c => c.name.trim().toLowerCase() === lower && c.id !== excludeId);
+}
+
+function isDepartmentNameTaken(name, excludeId) {
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    return departments.some(d => d.name.trim().toLowerCase() === lower && d.id !== excludeId);
+}
+
+function isRoleNameTaken(name, excludeId) {
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    return roles.some(r => r.name.trim().toLowerCase() === lower && r.id !== excludeId);
+}
+
+function isContactEmailTaken(email, excludeId) {
+    const trimmed = email.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    return contacts.some(c => c.email.trim().toLowerCase() === lower && c.id !== excludeId);
+}
+
+function isDealTitleTaken(title, excludeId) {
+    const trimmed = title.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    return deals.some(d => d.title.trim().toLowerCase() === lower && d.id !== excludeId);
+}
+
+function isUsernameTaken(username, excludeId) {
+    const trimmed = username.trim();
+    if (!trimmed) return false;
+    const lower = trimmed.toLowerCase();
+    return users.some(u => u.username.trim().toLowerCase() === lower && u.id !== excludeId);
+}
