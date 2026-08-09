@@ -127,6 +127,7 @@ async function clearLoginLogs(days = 30) {
  * @param {number} seconds - Duration in seconds
  * @returns {string} Formatted duration string
  */
+
 function formatDuration(seconds) {
     if (!seconds || seconds < 0) return 'Unknown';
     const hours = Math.floor(seconds / 3600);
@@ -162,6 +163,7 @@ function calculateDuration(start, end) {
  * @param {string} userId - User ID
  * @returns {Array} Array of log entries for the user
  */
+
 function getLogsByUser(userId) {
     return loginLogs.filter(log => log.userId === userId);
 }
@@ -178,6 +180,7 @@ function getFailedLogins() {
  * Get successful login attempts
  * @returns {Array} Array of successful login logs
  */
+
 function getSuccessfulLogins() {
     return loginLogs.filter(log => log.status === 'success');
 }
