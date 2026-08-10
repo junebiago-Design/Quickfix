@@ -1435,7 +1435,6 @@ $user = $_SESSION['user'];
 
     <!-- ===== SCRIPTS ===== -->
    <script src="js/core/api-client.js?v=live-20260731-02"></script>
-   <script src="js/services/realtime.js"></script>
 <script src="js/services/roles.js"></script>
 <script src="js/services/stages.js"></script>
 <script src="js/services/auth.js"></script>
