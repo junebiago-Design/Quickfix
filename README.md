@@ -1,4 +1,4 @@
-✅ What changed
+### ✅ What changed
 Removed the deduplication filter inside renderActivityList() – it now always renders the paginated slice.
 
 Kept the cache for logActivity() and prependActivity() to prevent duplicates when new items arrive.
