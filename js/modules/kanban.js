@@ -1,9 +1,10 @@
 // ══════════════════════════════════════════════
 //  KANBAN (TASKS / DEALS / STAGES) — js/modules/kanban.js
-//  UPDATED: Automatic current user filtering
+//  UPDATED: Automatic current user filtering + Search/Status filters
 //  - System Admin: Sees ALL tasks
 //  - Manager: Sees ALL tasks in their department
 //  - Employee: Sees ONLY their own tasks
+//  - Additional search and filter (overdue/completed/high)
 // ══════════════════════════════════════════════
 
 let dragDealId = null;
@@ -626,7 +627,55 @@ function initKanbanInteractions() {
     kanbanInteractionsInitialized = true;
 }
 
-// ── ⭐ MAIN RENDER FUNCTION (UPDATED with automatic current user filtering) ──
+// ── FILTER HELPERS ──────────────────────────────────────────────────────
+
+function getKanbanFilters() {
+    const search = document.getElementById('kanban-search')?.value?.toLowerCase()?.trim() || '';
+    const status = document.getElementById('kanban-filter-status')?.value || '';
+    return { search, status };
+}
+
+function isFinalStage(stageKey) {
+    const s = stages.find(st => st.key === stageKey);
+    return s ? s.final : false;
+}
+
+function applyKanbanFilters(dealsToFilter) {
+    const { search, status } = getKanbanFilters();
+    if (!search && !status) return dealsToFilter;
+
+    return dealsToFilter.filter(d => {
+        // ── Text search ──
+        let match = true;
+        if (search) {
+            const title = (d.title || '').toLowerCase();
+            const desc = (d.desc || '').toLowerCase();
+            const assignedIds = (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+            const assignedNames = assignedIds.map(id => {
+                const c = contacts.find(ct => ct.id === id);
+                return c ? `${c.fname} ${c.lname}`.toLowerCase() : '';
+            }).join(' ');
+            const deptName = getDepartmentName(d.department).toLowerCase();
+            const searchStr = `${title} ${desc} ${assignedNames} ${deptName}`;
+            match = searchStr.includes(search);
+        }
+        if (!match) return false;
+
+        // ── Status filter ──
+        if (status) {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const isOverdue = d.due && d.due < todayStr && !isFinalStage(d.stage);
+            const isCompleted = isFinalStage(d.stage);
+            const isHigh = d.priority === 'high';
+            if (status === 'overdue' && !isOverdue) return false;
+            if (status === 'completed' && !isCompleted) return false;
+            if (status === 'high' && !isHigh) return false;
+        }
+        return true;
+    });
+}
+
+// ── ⭐ MAIN RENDER FUNCTION (UPDATED with automatic current user filtering and search/status filters) ──
 function renderKanban(options = {}) {
     const shouldSave = options.save !== false;
 
@@ -692,6 +741,9 @@ function renderKanban(options = {}) {
         visibleDeals = deals;
     }
 
+    // ── Apply search and status filters on top of permission-based list ──
+    const filteredDeals = applyKanbanFilters(visibleDeals);
+
     const todayStr = new Date().toISOString().slice(0, 10);
     const finalKeys = new Set(stages.filter(s => s.final).map(s => s.key));
 
@@ -745,7 +797,8 @@ function renderKanban(options = {}) {
 
     const board = document.getElementById('kanban-board');
     board.innerHTML = visibleStages.map(stage => {
-        const stageDeals = visibleDeals.filter(d => d.stage === stage.key);
+        // Use filteredDeals (after search/status) for card count and rendering
+        const stageDeals = filteredDeals.filter(d => d.stage === stage.key);
         const myGrab = isSuperuser || typeof canGrab !== 'function' || canGrab(stage);
         const myDrop = isSuperuser || typeof canDrop !== 'function' || canDrop(stage);
         const myEdit = isSuperuser || typeof canEdit !== 'function' || canEdit(stage);
@@ -1336,5 +1389,8 @@ window.updateDealCard = updateDealCard;
 window.appendDealCard = appendDealCard;
 window.removeDealCard = removeDealCard;
 window.updateStageColumn = updateStageColumn;
+window.getKanbanFilters = getKanbanFilters;
+window.applyKanbanFilters = applyKanbanFilters;
+window.isFinalStage = isFinalStage;
 
-console.log('✅ Kanban module loaded with automatic current user filtering');
+console.log('✅ Kanban module loaded with automatic current user filtering and search/status filters');
