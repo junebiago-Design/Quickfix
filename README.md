@@ -1,3 +1,9 @@
+✅ What changed
+Removed the deduplication filter inside renderActivityList() – it now always renders the paginated slice.
+
+Kept the cache for logActivity() and prependActivity() to prevent duplicates when new items arrive.
+
+The goToActivityPage() function now works correctly because the list is re‑rendered with the new page’s items.
 **System-Wide Duplicate Validation & Entity Integrity Updates**
 
 This release implements a standardized duplicate-prevention framework across all core entities (Companies, Departments, Roles, Contacts, Deals/Tasks, and Users). The updates introduce targeted helper functions, strict field requirements, and explicit entity-linking safeguards to ensure data integrity during record creation and modification.
