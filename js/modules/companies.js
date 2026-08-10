@@ -31,6 +31,12 @@ function saveCompany() {
     const name = document.getElementById('comp-name').value.trim();
     if (!name) { toast('Company name is required.', 'error'); return; }
 
+    // ── Duplicate check ──
+    if (isCompanyNameTaken(name, editingId)) {
+        toast('A company with this name already exists.', 'error');
+        return;
+    }
+
     const obj = {
         id: editingId || uid(),
         name,
@@ -111,4 +117,3 @@ function renderCompanies() {
   `;
     }).join('');
 }
-

@@ -209,3 +209,23 @@ function toast(msg, type) {
         setTimeout(() => el.remove(), 300); }, 3000);
 }
 
+// ──────────────────────────────────────────────
+//  RELOAD DATA (new)
+// ──────────────────────────────────────────────
+function reloadData() {
+    toast('Refreshing data…', 'info');
+    // Immediate re‑render with current in‑memory data
+    renderPage(currentPage);
+    // Then fetch fresh data from server and re‑render
+    reloadAllData()
+        .then(() => {
+            if (currentPage) renderPage(currentPage);
+            toast('Data refreshed.', 'success');
+        })
+        .catch(() => {
+            toast('Failed to refresh data.', 'error');
+        });
+}
+
+// Expose to global scope (so the onclick in index.php works)
+window.reloadData = reloadData;

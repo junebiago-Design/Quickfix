@@ -78,7 +78,27 @@ function openUserModal(id, presetEmployeeId) {
 function saveUser() {
     if (isEmployee()) return;
     const username = document.getElementById('user-username').value.trim();
+    const employeeId = document.getElementById('user-employee').value;
+
     if (!username) { toast('Username is required.', 'error'); return; }
+
+    // ── Duplicate username check ──
+    if (isUsernameTaken(username, editingId)) {
+        toast('A user with this username already exists.', 'error');
+        return;
+    }
+
+    // ── If an employee is selected, ensure they don't already have a user account ──
+    if (employeeId && employeeHasUser(employeeId)) {
+        // If we are editing the same user (and employeeId is the same as the current user's),
+        // it's okay to skip the check. But we can check if the employee is already linked to another user.
+        // Let's see if the employee is linked to a different user.
+        const existingUser = users.find(u => u.employeeId === employeeId);
+        if (existingUser && existingUser.id !== editingId) {
+            toast('This employee already has a user account.', 'error');
+            return;
+        }
+    }
 
     const existing = editingId ? users.find(u => u.id === editingId) : null;
     const newPassword = document.getElementById('user-password').value;
@@ -88,7 +108,7 @@ function saveUser() {
         id: editingId || uid(),
         username,
         password: newPassword ? newPassword : (existing?.password || ''),
-        employeeId: document.getElementById('user-employee').value,
+        employeeId: employeeId,
         role: document.getElementById('user-role').value,
         status: document.getElementById('user-status').value,
         createdAt: existing?.createdAt || new Date().toISOString(),
@@ -153,4 +173,3 @@ function renderUsers() {
     </tr>
   `).join('');
 }
-

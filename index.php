@@ -9,12 +9,12 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 
 $user = $_SESSION['user'];
 ?>
-<!DOCTYPE html>
+
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-    <title>Task Management System | TMS V1.0</title>
+    <title>Task Management System | TMS V1.0.6</title>
     <link rel="stylesheet" href="css/index.min.css" />
 </head>
 <body>
@@ -124,6 +124,8 @@ $user = $_SESSION['user'];
                         <span class="pulse-dot"></span>
                         <span>Live</span>
                     </div>
+                    <!-- NEW: Reload Data button -->
+                    <button class="btn btn-danger" onclick="reloadData()" style="font-size:0.8rem;">⟳ Reload Data</button>
                     <button class="btn btn-ghost" onclick="logout()" style="font-size:0.8rem;">Logout</button>
                 </div>
                 <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">

@@ -54,6 +54,12 @@ function saveRole() {
     const name = document.getElementById('role-name').value.trim();
     if (!name) { toast('Role name is required.', 'error'); return; }
 
+    // ── Duplicate check ──
+    if (isRoleNameTaken(name, editingId)) {
+        toast('A role with this name already exists.', 'error');
+        return;
+    }
+
     // A role can't inherit from itself or introduce a cycle.
     let inheritsFrom = document.getElementById('role-inherits-from')?.value || '';
     if (editingId && inheritsFrom) {
@@ -257,4 +263,3 @@ function getInheritedPermissions(roleId, stageKey) {
     STAGE_PERMISSION_TYPES.forEach(p => { result[p] = hasStagePermission(stage, roleId, p); });
     return result;
 }
-

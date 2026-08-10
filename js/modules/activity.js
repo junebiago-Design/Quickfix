@@ -1,7 +1,9 @@
 // ══════════════════════════════════════════════
 //  ACTIVITY — js/modules/activity.js
-//  UPDATED: Fixed duplicate entries with cache tracking
-//  Preserved: Existing pagination (Prev/Next only)
+//  UPDATED: Fixed pagination Prev button not working.
+//  Deduplication cache is now used exclusively for
+//  preventing duplicate real-time inserts, not for
+//  blocking page navigation.
 // ══════════════════════════════════════════════
 
 const ACTIVITY_MAX_ENTRIES = 200;
@@ -350,37 +352,12 @@ function renderActivityList() {
         return;
     }
 
-    // ── DEDUPLICATION: Filter out already-displayed items ──────────────
-    // On first load (cache empty), display all items and populate cache.
-    // On subsequent loads, only display items not already in cache.
-    let renderedItems = [];
-    
-    if (displayedActivityIds.size === 0) {
-        // First load: display all items and populate cache
-        renderedItems = items;
-        items.forEach(item => {
-            if (item.id) displayedActivityIds.add(item.id);
-        });
-    } else {
-        // Subsequent loads: filter out already-displayed items
-        renderedItems = items.filter(item => {
-            if (!item.id) return true; // Items without ID are always shown
-            if (displayedActivityIds.has(item.id)) {
-                return false; // Skip duplicates
-            }
-            return true;
-        });
-        // Add newly rendered IDs to cache
-        renderedItems.forEach(item => {
-            if (item.id) displayedActivityIds.add(item.id);
-        });
-    }
-
-    // If there are no new items to show and we have cached items,
-    // keep the existing list (don't clear it)
-    if (renderedItems.length === 0 && displayedActivityIds.size > 0) {
-        return;
-    }
+    // ── FIX: Use the paginated items directly ─────────────────────────
+    // The deduplication cache is NOT applied here – we always render the
+    // items for the current page. This ensures that Prev/Next navigation
+    // works correctly. The cache is still used in logActivity() and
+    // prependActivity() to prevent duplicate inserts at the top.
+    const renderedItems = items;
 
     // Render activity items
     listEl.innerHTML = renderedItems.map(a => {
@@ -503,27 +480,9 @@ function renderFilteredActivityList(filterFn) {
     // insertion order alone.
     const sortedFiltered = filtered.slice().sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
 
-    // Apply deduplication for filtered view
-    let displayItems = [];
-    
-    if (displayedActivityIds.size === 0) {
-        displayItems = sortedFiltered.slice(0, 50);
-        displayItems.forEach(item => {
-            if (item.id) displayedActivityIds.add(item.id);
-        });
-    } else {
-        displayItems = sortedFiltered
-            .filter(item => !displayedActivityIds.has(item.id))
-            .slice(0, 50);
-        displayItems.forEach(item => {
-            if (item.id) displayedActivityIds.add(item.id);
-        });
-    }
-
-    if (displayItems.length === 0 && displayedActivityIds.size > 0) {
-        // No new items to show
-        return;
-    }
+    // For filtered view, we show only the most recent 50 items, but we don't use the cache for filtering.
+    // We'll just show the top 50.
+    const displayItems = sortedFiltered.slice(0, 50);
 
     listEl.innerHTML = displayItems.map(a => {
         let colorClass = a.color || 'accent';
@@ -551,16 +510,8 @@ function clearActivityCache() {
     renderActivityList();
 }
 
-// ══════════════════════════════════════════════
-//  DASHBOARD AUTO‑REFRESH (fallback for Recent Activity)
-//  socket-handler.js#prependActivity already pushes new entries in
-//  real time the instant they're broadcast (including login/logout,
-//  now that auth.php's logSystemActivity() writes into the same
-//  `activity` table). This interval is just a safety net — same
-//  pattern as employee-directory.js's 15s poll — so the Dashboard
-//  still catches up if the socket connection drops or a broadcast is
-//  missed, without needing a manual page refresh.
-// ══════════════════════════════════════════════
+// ── DASHBOARD AUTO‑REFRESH ────────────────────────────────────────────
+// (unchanged)
 let dashboardActivityRefreshInterval = null;
 
 function startDashboardActivityAutoRefresh() {
@@ -570,17 +521,7 @@ function startDashboardActivityAutoRefresh() {
         if (!dashPage || !dashPage.classList.contains('active')) return;
         if (typeof reloadAllData !== 'function') return;
         
-        // Store current displayed IDs count before reload
-        const beforeCount = displayedActivityIds.size;
-        
         await reloadAllData();
-        
-        // If we had cached IDs and we're not on page 1, 
-        // we need to check for new items
-        if (beforeCount > 0) {
-            // renderActivityList will handle deduplication
-        }
-        
         renderActivityList();
         if (typeof updateBadges === 'function') updateBadges();
     }, 15000);
@@ -592,7 +533,7 @@ if (typeof document !== 'undefined') {
     startDashboardActivityAutoRefresh();
 }
 
-// Export functions for global access if needed
+// ── EXPOSE GLOBALS ─────────────────────────────────────────────────────
 window.startDashboardActivityAutoRefresh = startDashboardActivityAutoRefresh;
 window.logActivity = logActivity;
 window.logNoteActivity = logNoteActivity;
