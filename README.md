@@ -4,15 +4,15 @@
 
 * kanban.js:
 
-* Added getKanbanFilters(), isFinalStage(), and applyKanbanFilters().
+  * Added getKanbanFilters(), isFinalStage(), and applyKanbanFilters().
 
-* In renderKanban(), after computing visibleDeals based on permissions, we now apply the search/status filters to produce filteredDeals.
+  * In renderKanban(), after computing visibleDeals based on permissions, we now apply the search/status filters to produce filteredDeals.
 
-* The board rendering uses filteredDeals for the card lists and column counts.
+  * The board rendering uses filteredDeals for the card lists and column counts.
 
-* The pipeline summary (task/completed/overdue) remains unaffected by the filters, providing context of all visible tasks.
+  * The pipeline summary (task/completed/overdue) remains unaffected by the filters, providing context of all visible tasks.
 
-* The filter UI elements trigger renderKanban() on input/change.
+  * The filter UI elements trigger renderKanban() on input/change.
 
 ### ✅ What changed
 Removed the deduplication filter inside renderActivityList() – it now always renders the paginated slice.
