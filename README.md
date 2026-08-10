@@ -1,4 +1,4 @@
-## Summary of Changes 1.0.8 
+### ✅ Summary of Changes 1.0.8 
 
 * index.php: The #page-deals section now includes a search input (#kanban-search) and a status filter dropdown (#kanban-filter-status) inside a flexible toolbar, followed by the pipeline summary.
 
