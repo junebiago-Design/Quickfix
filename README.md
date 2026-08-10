@@ -1,3 +1,19 @@
+## Summary of Changes 1.0.8 
+
+* index.php: The #page-deals section now includes a search input (#kanban-search) and a status filter dropdown (#kanban-filter-status) inside a flexible toolbar, followed by the pipeline summary.
+
+* kanban.js:
+
+* Added getKanbanFilters(), isFinalStage(), and applyKanbanFilters().
+
+* In renderKanban(), after computing visibleDeals based on permissions, we now apply the search/status filters to produce filteredDeals.
+
+* The board rendering uses filteredDeals for the card lists and column counts.
+
+* The pipeline summary (task/completed/overdue) remains unaffected by the filters, providing context of all visible tasks.
+
+* The filter UI elements trigger renderKanban() on input/change.
+
 ### ✅ What changed
 Removed the deduplication filter inside renderActivityList() – it now always renders the paginated slice.
 
