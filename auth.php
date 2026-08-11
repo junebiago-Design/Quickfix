@@ -11,8 +11,7 @@ if (file_exists($socketNotifierPath)) {
 if (!function_exists('notifySocketServer')) {
     function notifySocketServer(string $event, array $data, int $timeoutMs = 1500): bool { return false; }
 }
-
-define('DATA_DIR', __DIR__ . '/data');
+define('DATA_DIR', __DIR__ . '/../data');
 define('DB_FILE', DATA_DIR . '/tms_database.sq3');
 
 // ── Database Connection Helper ───────────────────────────────────────

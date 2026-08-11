@@ -33,9 +33,10 @@ if (file_exists($socketNotifierPath)) {
 if (!function_exists('notifySocketServer')) {
     function notifySocketServer(string $event, array $data, int $timeoutMs = 1500): bool { return false; }
 }
-
-define('DATA_DIR', __DIR__ . '/data');
-define('UPLOAD_DIR', __DIR__ . '/uploads');
+// Database folder – one level up from dashboard/
+define('DATA_DIR', __DIR__ . '/../data');
+// Upload folder – at the CRM root, outside dashboard/
+define('UPLOAD_DIR', __DIR__ . '/../uploads');
 define('DB_FILE', DATA_DIR . '/tms_database.sq3');
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
