@@ -14,7 +14,7 @@ $user = $_SESSION['user'];
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-    <title>Task Management System | TMS V1.0.6</title>
+    <title>Task Management System | TMS V1.0.7</title>
     <link rel="stylesheet" href="css/index.min.css" />
 </head>
 <body>
@@ -105,7 +105,7 @@ $user = $_SESSION['user'];
 
             <div class="sidebar-footer">
                 <span id="sidebar-footer-email"><?= htmlspecialchars($user['email'] ?? '') ?></span>
-                Task Management System · TMS V1.0
+                Task Management System · TMS V1.1.7
             </div>
         </nav>
 
