@@ -1431,13 +1431,21 @@ $user = $_SESSION['user'];
         <div id="toast-container"></div>
 
     </div><!-- end #app-shell -->
-<!-- Load Notification Manager FIRST (before any other modules) -->
+    <!-- Load Notification Manager FIRST (before any other modules) -->
 
     <!-- ===== SCRIPTS ===== -->
+<<<<<<< Updated upstream
    <script src="js/core/api-client.js?v=live-20260731-02"></script>
 <script src="js/services/roles.js"></script>
 <script src="js/services/stages.js"></script>
 <script src="js/services/auth.js"></script>
+=======
+    <script src="js/core/api-client.js?v=live-20260731-02"></script>
+    <script src="js/services/realtime.js"></script>
+    <script src="js/services/roles.js"></script>
+    <script src="js/services/stages.js"></script>
+    <script src="js/services/auth.js"></script>
+>>>>>>> Stashed changes
 
 
     <script src="js/modules/theme.js"></script>
@@ -1453,7 +1461,7 @@ $user = $_SESSION['user'];
     <script src="js/modules/contacts.js"></script>
     <script src="js/core/permissions.js"></script>
     <script src="js/modules/notes.js"></script>
-<script src="js/modules/kanban.js?v=20260810-01"></script>
+    <script src="js/modules/kanban.js?v=20260810-01"></script>
     <script src="js/modules/modals.js"></script>
     <script src="js/modules/deals.js"></script>
 	<script src="js/modules/attachments.js?v=20260803-03"></script>
