@@ -1,10 +1,7 @@
 // ══════════════════════════════════════════════
-//  NAVIGATION & SHELL UI — js/modules/navigation.js (pages, navigate, sidebar, modals, toast)
-//  Part of app.js module split.
-//  Depends on js/api.js (data layer) and other
-//  js/modules/*.js files being loaded first per
-//  index.html script order. Shares the global
-//  scope (classic scripts).
+//  NAVIGATION & SHELL UI — js/modules/navigation.js
+//  (pages, navigate, sidebar, modals, toast, reloadData)
+//  UPDATED: reloadData() resets pending updates badge.
 // ══════════════════════════════════════════════
 
 // ══════════════════════════════════════════════
@@ -210,9 +207,14 @@ function toast(msg, type) {
 }
 
 // ──────────────────────────────────────────────
-//  RELOAD DATA (new)
+//  RELOAD DATA (UPDATED: resets badge)
 // ──────────────────────────────────────────────
 function reloadData() {
+    // ✅ Reset pending updates badge
+    if (typeof window.resetPendingUpdates === 'function') {
+        window.resetPendingUpdates();
+    }
+
     toast('Refreshing data…', 'info');
     // Immediate re‑render with current in‑memory data
     renderPage(currentPage);

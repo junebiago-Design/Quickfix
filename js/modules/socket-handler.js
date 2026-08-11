@@ -10,10 +10,31 @@
 //  - Silent UI updates for remote events
 //  - HOSTINGER DEPLOYMENT READY
 //  - LOCALHOST FIX: Force WebSocket transport to bypass Cloudflare Access
+//  - ADDED: Pending updates badge for activity:new events
 // ══════════════════════════════════════════════
 
 (function() {
     'use strict';
+
+    // ── Global counter for pending updates (activity:new) ──
+    window.pendingUpdates = 0;
+
+    function updateReloadBadge() {
+        const badge = document.getElementById('reload-badge');
+        if (!badge) return;
+        if (window.pendingUpdates > 0) {
+            badge.textContent = window.pendingUpdates;
+            badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    // Make reset function globally accessible
+    window.resetPendingUpdates = function() {
+        window.pendingUpdates = 0;
+        updateReloadBadge();
+    };
 
     // ── Configuration ──────────────────────────────────────────────────
     // Hostinger: Use the domain tms.ghcoor.com without port (proxied)
@@ -289,6 +310,10 @@
             }
             updateUI('prependActivity', data);
 
+            // ── Increment pending updates badge ──
+            window.pendingUpdates++;
+            updateReloadBadge();
+
             // ── Minimal Kanban realtime refresh ──────────────────────────
             // activity:new fires alongside a dedicated entity event
             // (deal:updated, note:created, contact:updated, etc — see
@@ -329,7 +354,7 @@
             }
         });
 
-      // task actvity is handled by activity:new above, so no separate task-activity:new handler is needed
+        // task activity is handled by activity:new above, so no separate task-activity:new handler is needed
 
         // ──────────────────────────────────────────────────────────────────
         //  NOTES / COMMENTS / REVISIONS

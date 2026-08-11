@@ -1,6 +1,7 @@
 // ══════════════════════════════════════════════
 //  ACTIVITY — js/modules/activity.js
-//  ADDED: renderRecentActivityList(limit) for dashboard
+//  UPDATED: Auto‑refresh interval set to 5 minutes (300000 ms)
+//  and badge reset after refresh.
 // ══════════════════════════════════════════════
 
 const ACTIVITY_MAX_ENTRIES = 200;
@@ -515,6 +516,12 @@ function startDashboardActivityAutoRefresh() {
         if (typeof reloadAllData !== 'function') return;
         
         await reloadAllData();
+
+        // ✅ Reset pending updates badge after auto‑refresh
+        if (typeof window.resetPendingUpdates === 'function') {
+            window.resetPendingUpdates();
+        }
+
         // Re-render the dashboard activity list (and other parts if needed)
         if (typeof renderDashboard === 'function') {
             renderDashboard();
@@ -522,7 +529,7 @@ function startDashboardActivityAutoRefresh() {
             renderActivityList();
         }
         if (typeof updateBadges === 'function') updateBadges();
-    }, 15000);
+    }, 300000); // 5 minutes (300000 ms)
 }
 
 if (typeof document !== 'undefined') {
@@ -537,7 +544,7 @@ window.logCommentDone = logCommentDone;
 window.logRevisionDone = logRevisionDone;
 window.logTaskCompletionActivity = logTaskCompletionActivity;
 window.renderActivityList = renderActivityList;
-window.renderRecentActivityList = renderRecentActivityList; // new export
+window.renderRecentActivityList = renderRecentActivityList;
 window.prependActivity = prependActivity;
 window.goToActivityPage = goToActivityPage;
 window.resetActivityPagination = resetActivityPagination;
