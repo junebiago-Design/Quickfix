@@ -1,9 +1,6 @@
 // ══════════════════════════════════════════════
 //  ACTIVITY — js/modules/activity.js
-//  UPDATED: Fixed pagination Prev button not working.
-//  Deduplication cache is now used exclusively for
-//  preventing duplicate real-time inserts, not for
-//  blocking page navigation.
+//  ADDED: renderRecentActivityList(limit) for dashboard
 // ══════════════════════════════════════════════
 
 const ACTIVITY_MAX_ENTRIES = 200;
@@ -14,9 +11,6 @@ let activityCurrentPage = 1;
 let activityTotalPages = 1;
 
 // ── DEDUPLICATION CACHE ──────────────────────────────────────────────
-// Tracks activity IDs that have already been displayed to prevent
-// duplicates when re-fetching from server or reconnecting Socket.IO.
-// Using a Set for O(1) lookups.
 let displayedActivityIds = new Set();
 
 const ACTIVITY_CATEGORY_RULES = [
@@ -107,19 +101,16 @@ function logActivity(message, color) {
         actorRole: (typeof currentUser !== 'undefined' && currentUser?.role) || '',
     };
 
-    // Add to cache BEFORE pushing to array
     displayedActivityIds.add(entry.id);
     
     activity.unshift(entry);
     if (activity.length > ACTIVITY_MAX_ENTRIES) {
-        // Remove oldest entries from cache when trimming
         const removed = activity.splice(ACTIVITY_MAX_ENTRIES);
         removed.forEach(e => displayedActivityIds.delete(e.id));
     }
 
     if (typeof saveAll === 'function') saveAll();
     
-    // Reset to page 1 when new activity is added
     activityCurrentPage = 1;
     renderActivityList();
     if (typeof updateBadges === 'function') updateBadges();
@@ -209,11 +200,7 @@ function logCommentDone(taskTitle, commentTitle, commentAuthorId, linkedEmployee
 }
 
 // Logged when a task moves out of the area an assigned employee's role
-// can see (task-activity-writer.js#processAssigneeLifecycle). Unlike
-// logActivity(), this does NOT prefix the message with the current
-// actor's name — the employee named here is the task's assignee, who
-// may not be whoever dragged the card. Format: "Lastname, Firstname
-// Completed <Task Name>".
+// can see (task-activity-writer.js#processAssigneeLifecycle).
 function logTaskCompletionActivity(lname, fname, taskTitle) {
     if (typeof activity === 'undefined') { console.warn('logTaskCompletionActivity: global `activity` array not found.'); return; }
 
@@ -298,18 +285,11 @@ function getPaginatedActivity() {
         return { items: [], total: 0, currentPage: 1, totalPages: 1 };
     }
 
-    // Newest first — sorted explicitly on every render rather than trusting
-    // unshift() to have kept `activity` ordered. That assumption breaks as
-    // soon as the array is repopulated from the backend (reloadAllData(),
-    // initial load, reconciliation pass) since the source JSON/SQLite store
-    // doesn't guarantee row order — same reasoning task-activity.js already
-    // applies to its own feed.
     const sorted = activity.slice().sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
 
     const total = sorted.length;
     const totalPages = Math.ceil(total / ACTIVITY_PER_PAGE);
     
-    // Ensure current page is valid
     if (activityCurrentPage < 1) activityCurrentPage = 1;
     if (activityCurrentPage > totalPages) activityCurrentPage = totalPages;
     
@@ -325,7 +305,7 @@ function getPaginatedActivity() {
     };
 }
 
-// Render activity with pagination
+// Render activity with pagination (used on the dedicated activity page)
 function renderActivityList() {
     const listEl = document.getElementById('activity-list');
     if (!listEl) return;
@@ -335,7 +315,6 @@ function renderActivityList() {
     
     const { items, total, currentPage, totalPages } = getPaginatedActivity();
     
-    // Update total count
     if (countEl) {
         countEl.textContent = total > 0 ? `${total} total` : '';
     }
@@ -347,20 +326,12 @@ function renderActivityList() {
                 <p>No activity yet. Start by adding employees or tasks.</p>
             </li>`;
         if (paginationEl) paginationEl.innerHTML = '';
-        // Clear cache when there's no activity
         displayedActivityIds.clear();
         return;
     }
 
-    // ── FIX: Use the paginated items directly ─────────────────────────
-    // The deduplication cache is NOT applied here – we always render the
-    // items for the current page. This ensures that Prev/Next navigation
-    // works correctly. The cache is still used in logActivity() and
-    // prependActivity() to prevent duplicate inserts at the top.
-    const renderedItems = items;
-
-    // Render activity items
-    listEl.innerHTML = renderedItems.map(a => {
+    // Render items
+    listEl.innerHTML = items.map(a => {
         let colorClass = a.color || 'accent';
         if (a.category === 'revision') colorClass = 'revision';
         else if (a.category === 'comment') colorClass = 'comment';
@@ -378,25 +349,66 @@ function renderActivityList() {
         `;
     }).join('');
 
-    // Render simplified pagination (Prev / Next only)
     if (paginationEl) {
         paginationEl.innerHTML = buildSimplifiedPagination(currentPage, totalPages, total);
     }
 }
 
-// Insert a remotely-created activity entry (from js/modules/socket-handler.js)
-// at the top of the list. Unlike logActivity(), this does NOT call saveAll() —
-// the entry was already persisted by whoever originally triggered it; we're
-// just reflecting it into this client's view.
+// ── NEW: Render a simple list of recent activity (no pagination) ──
+// Used by the dashboard to show the latest N entries.
+function renderRecentActivityList(limit = 10, containerId = 'dashboard-activity-list', countId = 'dashboard-activity-count') {
+    const listEl = document.getElementById(containerId);
+    const countEl = document.getElementById(countId);
+    if (!listEl) return;
+
+    let allActivity = [];
+    if (typeof activity !== 'undefined' && Array.isArray(activity)) {
+        allActivity = activity.slice();
+    }
+
+    if (countEl) countEl.textContent = allActivity.length;
+
+    if (!allActivity.length) {
+        listEl.innerHTML = `<li class="empty-state" style="padding:40px 20px;">
+            <span class="es-icon">◌</span>
+            <p>No activity yet. Start by adding employees or tasks.</p>
+        </li>`;
+        return;
+    }
+
+    // Sort newest first and take the limit
+    const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
+    const displayItems = sorted.slice(0, limit);
+
+    const timeFn = (typeof fmtRelativeTime === 'function') ? fmtRelativeTime :
+                   (typeof fmtShortDate === 'function') ? fmtShortDate :
+                   (iso => iso || '');
+
+    listEl.innerHTML = displayItems.map(a => {
+        let colorClass = a.color || 'accent';
+        if (a.category === 'revision') colorClass = 'revision';
+        else if (a.category === 'comment') colorClass = 'comment';
+        else if (a.category === 'permission') colorClass = 'permission';
+        else if (a.category === 'file') colorClass = 'file';
+        else if (a.category === 'done') colorClass = 'success';
+        else if (a.category === 'task-move') colorClass = 'task-move';
+        return `
+            <li class="activity-item activity-${colorClass}">
+                <span class="activity-icon" title="${a.category || 'general'}">${a.icon || '•'}</span>
+                <span class="activity-message">${a.message || a.text || ''}</span>
+                <span class="activity-time">${timeFn(a.createdAt || a.ts)}</span>
+            </li>
+        `;
+    }).join('');
+}
+
+// Insert a remotely-created activity entry
 function prependActivity(activityEntry) {
     if (typeof activity === 'undefined' || !activityEntry) return;
     
-    // Guard against duplicates: our own action echoed back by the
-    // broadcast, or a repeated socket delivery.
     if (activity.some(a => a.id === activityEntry.id)) return;
     if (displayedActivityIds.has(activityEntry.id)) return;
 
-    // Add to cache
     displayedActivityIds.add(activityEntry.id);
     
     activity.unshift(activityEntry);
@@ -406,11 +418,8 @@ function prependActivity(activityEntry) {
     }
 
     if (activityCurrentPage === 1) {
-        // Viewer is on the latest page — safe to re-render in place.
         renderActivityList();
     } else {
-        // Don't yank someone off the older page they're reading; just
-        // keep the count/pagination summary accurate in the background.
         const countEl = document.getElementById('activity-count');
         if (countEl) countEl.textContent = `${activity.length} total`;
         const paginationEl = document.getElementById('activity-pagination');
@@ -423,7 +432,6 @@ function prependActivity(activityEntry) {
     if (typeof updateBadges === 'function') updateBadges();
 }
 
-// Simplified pagination with Prev/Next arrows and a page indicator
 function buildSimplifiedPagination(currentPage, totalPages, total) {
     if (totalPages <= 1) {
         return `<span style="font-size:0.75rem;color:var(--text3);">Showing all ${total} logs</span>`;
@@ -434,28 +442,21 @@ function buildSimplifiedPagination(currentPage, totalPages, total) {
     
     let html = `<span style="font-size:0.75rem;color:var(--text3);margin-right:12px;">Showing ${start}–${end} of ${total}</span>`;
     
-    // Previous button
     html += `<button class="btn btn-sm btn-ghost" onclick="goToActivityPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>‹ Prev</button>`;
-    
-    // Next button
     html += `<button class="btn btn-sm btn-ghost" onclick="goToActivityPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>Next ›</button>`;
     
     return html;
 }
 
-// Navigate to a specific page
 function goToActivityPage(page) {
     if (typeof activity === 'undefined') return;
     const total = activity.length;
     const totalPages = Math.ceil(total / ACTIVITY_PER_PAGE);
-    
     if (page < 1 || page > totalPages) return;
-    
     activityCurrentPage = page;
     renderActivityList();
 }
 
-// Reset to first page
 function resetActivityPagination() {
     activityCurrentPage = 1;
     renderActivityList();
@@ -476,12 +477,7 @@ function renderFilteredActivityList(filterFn) {
         return;
     }
 
-    // Newest first — see getPaginatedActivity() for why this can't rely on
-    // insertion order alone.
     const sortedFiltered = filtered.slice().sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
-
-    // For filtered view, we show only the most recent 50 items, but we don't use the cache for filtering.
-    // We'll just show the top 50.
     const displayItems = sortedFiltered.slice(0, 50);
 
     listEl.innerHTML = displayItems.map(a => {
@@ -503,15 +499,12 @@ function renderFilteredActivityList(filterFn) {
     }).join('');
 }
 
-// ── CLEAR DEDUPLICATION CACHE ────────────────────────────────────────
-// Call this when you want to force a full refresh (e.g., manual reload)
 function clearActivityCache() {
     displayedActivityIds.clear();
     renderActivityList();
 }
 
 // ── DASHBOARD AUTO‑REFRESH ────────────────────────────────────────────
-// (unchanged)
 let dashboardActivityRefreshInterval = null;
 
 function startDashboardActivityAutoRefresh() {
@@ -522,13 +515,16 @@ function startDashboardActivityAutoRefresh() {
         if (typeof reloadAllData !== 'function') return;
         
         await reloadAllData();
-        renderActivityList();
+        // Re-render the dashboard activity list (and other parts if needed)
+        if (typeof renderDashboard === 'function') {
+            renderDashboard();
+        } else {
+            renderActivityList();
+        }
         if (typeof updateBadges === 'function') updateBadges();
     }, 15000);
 }
 
-// Start immediately — the interval itself only does work while the
-// Dashboard page is the one currently visible.
 if (typeof document !== 'undefined') {
     startDashboardActivityAutoRefresh();
 }
@@ -541,6 +537,7 @@ window.logCommentDone = logCommentDone;
 window.logRevisionDone = logRevisionDone;
 window.logTaskCompletionActivity = logTaskCompletionActivity;
 window.renderActivityList = renderActivityList;
+window.renderRecentActivityList = renderRecentActivityList; // new export
 window.prependActivity = prependActivity;
 window.goToActivityPage = goToActivityPage;
 window.resetActivityPagination = resetActivityPagination;

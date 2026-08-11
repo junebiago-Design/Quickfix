@@ -1,19 +1,14 @@
 // ══════════════════════════════════════════════
 //  DASHBOARD — js/modules/dashboard.js
-//  UPDATED:
-//  - My Active Tasks side‑by‑side with Recent Activity
-//  - Recent Activity filtered to current user only
-//  - Upcoming Announcements moved to a full‑width row below
+//  UPDATED: Uses renderRecentActivityList(10)
 // ══════════════════════════════════════════════
 
 function renderDashboard() {
     const finalStageKeys = new Set(stages.filter(s => s.final).map(s => s.key));
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    // ── Get current employee ID ──
     const currentEmployeeId = currentUser?.employeeId || currentUser?.contactId;
 
-    // ── Filter deals assigned to the current user ──
     let myDeals = [];
     if (currentEmployeeId) {
         myDeals = deals.filter(d => {
@@ -23,18 +18,15 @@ function renderDashboard() {
         });
     }
 
-    // ── Compute my task stats ──
     const myActiveTasks = myDeals.filter(d => !finalStageKeys.has(d.stage)).length;
     const myCompletedTasks = myDeals.filter(d => finalStageKeys.has(d.stage)).length;
     const myOverdueTasks = myDeals.filter(d =>
         !finalStageKeys.has(d.stage) && d.due && d.due < todayStr
     ).length;
 
-    // ── Pending announcements (global) ──
     const pendingAnnouncements = tasks.filter(t => !t.done).length;
     const overdueAnnouncements = tasks.filter(t => !t.done && t.due < todayStr).length;
 
-    // ── Build stats grid (4 cards) ──
     const stats = [
         { icon: '📋', val: myActiveTasks, label: 'My Active Tasks', color: 'var(--purple)' },
         { icon: '✓', val: myCompletedTasks, label: 'My Completed Tasks', color: 'var(--green)' },
@@ -50,32 +42,28 @@ function renderDashboard() {
     </div>
   `).join('');
 
-    // ── Rebuild the dashboard grid: two columns + full‑width upcoming ──
     rebuildDashboardGrid(myDeals.filter(d => !finalStageKeys.has(d.stage)));
 }
-
-// ── Rebuild the dashboard-grid with the new layout ────────────────────
 
 function rebuildDashboardGrid(activeDeals) {
     const grid = document.querySelector('#page-dashboard .dashboard-grid');
     if (!grid) return;
 
-    // Clear existing content
     grid.innerHTML = '';
 
-    // ── Column 1: Recent Activity (filtered to current user) ──
+    // ── Column 1: Recent Activity (limit 10) ──
     const activityCol = document.createElement('div');
     activityCol.className = 'card';
     activityCol.innerHTML = `
         <div class="card-header">
-            <span>My Recent Activity</span>
+            <span>Recent Activity</span>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-activity-count"></span>
         </div>
         <div class="card-body">
             <ul class="activity-list" id="dashboard-activity-list">
                 <li class="empty-state" style="padding:40px 20px;">
                     <span class="es-icon">◌</span>
-                    <p>No activity yet from your account.</p>
+                    <p>No activity yet. Start by adding employees or tasks.</p>
                 </li>
             </ul>
         </div>
@@ -107,52 +95,40 @@ function rebuildDashboardGrid(activeDeals) {
     grid.appendChild(upcomingCol);
 
     // ── Populate columns ──
-    renderDashboardActivityList();
+    // Render the 10 most recent activities using the new helper
+    if (typeof renderRecentActivityList === 'function') {
+        renderRecentActivityList(10, 'dashboard-activity-list', 'dashboard-activity-count');
+    } else {
+        // fallback
+        renderDashboardActivityListFallback();
+    }
     renderDashboardMyTasksContent(activeDeals);
     renderDashboardUpcoming();
 }
 
-// ── Render filtered activity (current user only) ──────────────────────
-
-function renderDashboardActivityList() {
+// Fallback in case renderRecentActivityList isn't available
+function renderDashboardActivityListFallback() {
     const listEl = document.getElementById('dashboard-activity-list');
     const countEl = document.getElementById('dashboard-activity-count');
     if (!listEl) return;
 
-    // Get current user's full name for filtering
-    const fullName = (typeof getCurrentUserFullName === 'function') ? getCurrentUserFullName() : '';
-    const empId = (typeof getCurrentEmployeeId === 'function') ? getCurrentEmployeeId() : (currentUser?.employeeId || null);
-
-    let filtered = [];
+    let allActivity = [];
     if (typeof activity !== 'undefined' && Array.isArray(activity)) {
-        filtered = activity.filter(a => {
-            const msg = a.message || a.text || '';
-            // Match by employee ID if available, otherwise by name in message
-            if (empId) {
-                // Check if the activity's actor is the current user (if actor info exists)
-                if (a.actorId && a.actorId === empId) return true;
-                // Fallback: check if the message contains the full name
-                if (fullName && msg.includes(fullName)) return true;
-                return false;
-            }
-            // If no empId, fallback to name match
-            return fullName && msg.includes(fullName);
-        });
+        allActivity = activity.slice();
     }
 
-    if (countEl) countEl.textContent = filtered.length;
+    if (countEl) countEl.textContent = allActivity.length;
 
-    if (!filtered.length) {
+    if (!allActivity.length) {
         listEl.innerHTML = `<li class="empty-state" style="padding:40px 20px;">
             <span class="es-icon">◌</span>
-            <p>No activity yet from your account.</p>
+            <p>No activity yet. Start by adding employees or tasks.</p>
         </li>`;
         return;
     }
 
-    // Sort newest first
-    const sorted = filtered.slice().sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
-    const displayItems = sorted.slice(0, 20); // limit to 20
+    const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
+    const displayItems = sorted.slice(0, 10);
 
     const timeFn = (typeof fmtRelativeTime === 'function') ? fmtRelativeTime :
                    (typeof fmtShortDate === 'function') ? fmtShortDate :
@@ -176,8 +152,6 @@ function renderDashboardActivityList() {
     }).join('');
 }
 
-// ── Render My Active Tasks content (cards) ────────────────────────────
-
 function renderDashboardMyTasksContent(activeDeals) {
     const bodyEl = document.getElementById('dashboard-my-tasks-body');
     const countEl = document.getElementById('dashboard-my-tasks-count');
@@ -190,7 +164,6 @@ function renderDashboardMyTasksContent(activeDeals) {
         return;
     }
 
-    // Use profileDealCardHTML if available, else fallback
     let html;
     if (typeof profileDealCardHTML === 'function') {
         html = activeDeals.map(d => profileDealCardHTML(d)).join('');
@@ -208,8 +181,6 @@ function renderDashboardMyTasksContent(activeDeals) {
     }
     bodyEl.innerHTML = html;
 }
-
-// ── Render Upcoming Announcements (global) ────────────────────────────
 
 function renderDashboardUpcoming() {
     const upEl = document.getElementById('dashboard-upcoming-body');
@@ -238,6 +209,4 @@ function renderDashboardUpcoming() {
 
 // Expose globally
 window.renderDashboard = renderDashboard;
-window.renderDashboardMyTasks = renderDashboardMyTasks; // kept for compatibility
-
-console.log('✅ Dashboard module loaded (new layout: My Recent Activity + My Active Tasks side‑by‑side)');
+window.renderDashboardMyTasks = renderDashboardMyTasks;
