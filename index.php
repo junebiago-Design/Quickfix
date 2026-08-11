@@ -1434,7 +1434,7 @@ $user = $_SESSION['user'];
 
     </div><!-- end #app-shell -->
 
-    <!-- ===== SCRIPTS (profile.js BEFORE dashboard.js) ===== -->
+    <!-- ===== SCRIPTS (order fixed: profile.js BEFORE dashboard.js) ===== -->
     <script src="js/core/api-client.js?v=live-20260731-02"></script>
     <script src="js/services/realtime.js"></script>
     <script src="js/services/roles.js"></script>
@@ -1449,7 +1449,7 @@ $user = $_SESSION['user'];
     <script src="js/modules/task-activity-writer.js"></script>
     <script src="js/modules/task-activity.js"></script>
     <script src="js/modules/seed.js"></script>
-    <!-- profile.js FIRST so profileDealCardHTML is defined -->
+    <!-- profile.js loaded BEFORE dashboard.js so profileDealCardHTML is defined -->
     <script src="js/modules/profile.js"></script>
     <script src="js/modules/dashboard.js"></script>
     <script src="js/modules/employee-directory.js"></script>
