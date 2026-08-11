@@ -1,6 +1,8 @@
 // ══════════════════════════════════════════════
 //  DASHBOARD — js/modules/dashboard.js
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
 //  UPDATED:
 <<<<<<< HEAD
 //  - Pagination moved to top of Recent Activity
@@ -10,6 +12,12 @@
 //  - Recent Activity filtered to current user only
 //  - Upcoming Announcements moved to a full‑width row below
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+//  UPDATED: Uses renderRecentActivityList(10)
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+//  UPDATED: Uses renderRecentActivityList(10)
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
 //  UPDATED: Uses renderRecentActivityList(10)
 >>>>>>> parent of e6f06d4 (1.1.3 update)
@@ -74,10 +82,18 @@ function rebuildDashboardGrid(activeDeals) {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
     // ── Column 1: Recent Activity with top pagination & scroll ──
 =======
     // ── Column 1: Recent Activity (filtered to current user) ──
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+    // ── Column 1: Recent Activity (limit 10) ──
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+    // ── Column 1: Recent Activity (limit 10) ──
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
     // ── Column 1: Recent Activity (limit 10) ──
 >>>>>>> parent of e6f06d4 (1.1.3 update)
@@ -88,6 +104,8 @@ function rebuildDashboardGrid(activeDeals) {
             <span>My Recent Activity</span>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-activity-count"></span>
         </div>
+<<<<<<< HEAD
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
         <div class="card-body" style="padding:0 16px 16px;">
@@ -105,15 +123,31 @@ function rebuildDashboardGrid(activeDeals) {
 =======
 =======
 >>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
         <div class="card-body">
             <ul class="activity-list" id="dashboard-activity-list">
                 <li class="empty-state" style="padding:40px 20px;">
                     <span class="es-icon">◌</span>
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
                     <p>No activity yet from your account.</p>
                 </li>
             </ul>
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+                    <p>No activity yet. Start by adding employees or tasks.</p>
+                </li>
+            </ul>
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+                    <p>No activity yet. Start by adding employees or tasks.</p>
+                </li>
+            </ul>
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
                     <p>No activity yet. Start by adding employees or tasks.</p>
                 </li>
@@ -150,11 +184,17 @@ function rebuildDashboardGrid(activeDeals) {
     // ── Populate columns ──
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
     dashboardActivityPage = 1;
 =======
 >>>>>>> parent of a55392e (Major Dashboard changes)
     renderDashboardActivityList();
 =======
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
     // Render the 10 most recent activities using the new helper
     if (typeof renderRecentActivityList === 'function') {
         renderRecentActivityList(10, 'dashboard-activity-list', 'dashboard-activity-count');
@@ -162,11 +202,19 @@ function rebuildDashboardGrid(activeDeals) {
         // fallback
         renderDashboardActivityListFallback();
     }
+<<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
 >>>>>>> parent of e6f06d4 (1.1.3 update)
     renderDashboardMyTasksContent(activeDeals);
     renderDashboardUpcoming();
 }
 
+<<<<<<< HEAD
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 // ── Render dashboard activity list with top pagination ──
@@ -175,6 +223,14 @@ function rebuildDashboardGrid(activeDeals) {
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
 function renderDashboardActivityList() {
+=======
+// Fallback in case renderRecentActivityList isn't available
+function renderDashboardActivityListFallback() {
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+// Fallback in case renderRecentActivityList isn't available
+function renderDashboardActivityListFallback() {
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
 // Fallback in case renderRecentActivityList isn't available
 function renderDashboardActivityListFallback() {
@@ -206,6 +262,8 @@ function renderDashboardActivityListFallback() {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
     allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
 
     const total = allActivity.length;
@@ -231,6 +289,16 @@ function renderDashboardActivityListFallback() {
 
     if (!allActivity.length) {
 >>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+    if (countEl) countEl.textContent = allActivity.length;
+
+    if (!allActivity.length) {
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+    if (countEl) countEl.textContent = allActivity.length;
+
+    if (!allActivity.length) {
+>>>>>>> parent of e6f06d4 (1.1.3 update)
         listEl.innerHTML = `<li class="empty-state" style="padding:40px 20px;">
             <span class="es-icon">◌</span>
             <p>No activity yet from your account.</p>
@@ -240,12 +308,24 @@ function renderDashboardActivityListFallback() {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
 =======
     // Sort newest first
     const sorted = filtered.slice().sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
     const displayItems = sorted.slice(0, 20); // limit to 20
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+    const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
+    const displayItems = sorted.slice(0, 10);
+
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+    const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
+    const displayItems = sorted.slice(0, 10);
+
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
     const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
     const displayItems = sorted.slice(0, 10);
@@ -275,6 +355,8 @@ function renderDashboardActivityListFallback() {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
 // ── Navigate dashboard activity to a specific page ──
 function dashboardGoToActivityPage(page) {
     let allActivity = [];
@@ -293,6 +375,10 @@ function dashboardGoToActivityPage(page) {
 // ── Render My Active Tasks content (cards) ────────────────────────────
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
 >>>>>>> parent of e6f06d4 (1.1.3 update)
 function renderDashboardMyTasksContent(activeDeals) {
@@ -328,11 +414,17 @@ function renderDashboardMyTasksContent(activeDeals) {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
 // ── Render Upcoming Announcements ──
 =======
 // ── Render Upcoming Announcements (global) ────────────────────────────
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
 >>>>>>> parent of e6f06d4 (1.1.3 update)
 function renderDashboardUpcoming() {
@@ -364,6 +456,8 @@ function renderDashboardUpcoming() {
 window.renderDashboard = renderDashboard;
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+<<<<<<< HEAD
 window.dashboardGoToActivityPage = dashboardGoToActivityPage;
 window.renderDashboardMyTasks = renderDashboardMyTasks;
 
@@ -373,6 +467,12 @@ window.renderDashboardMyTasks = renderDashboardMyTasks; // kept for compatibilit
 
 console.log('✅ Dashboard module loaded (new layout: My Recent Activity + My Active Tasks side‑by‑side)');
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+window.renderDashboardMyTasks = renderDashboardMyTasks;
+>>>>>>> parent of e6f06d4 (1.1.3 update)
+=======
+window.renderDashboardMyTasks = renderDashboardMyTasks;
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 =======
 window.renderDashboardMyTasks = renderDashboardMyTasks;
 >>>>>>> parent of e6f06d4 (1.1.3 update)
