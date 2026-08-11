@@ -10,7 +10,7 @@
 //  - Silent UI updates for remote events
 //  - HOSTINGER DEPLOYMENT READY
 //  - LOCALHOST FIX: Force WebSocket transport to bypass Cloudflare Access
-//  - ADDED: Pending updates badge for activity:new events
+//  - ADDED: Pending updates badge with show/hide for reload button
 // ══════════════════════════════════════════════
 
 (function() {
@@ -20,12 +20,16 @@
     window.pendingUpdates = 0;
 
     function updateReloadBadge() {
+        const btn = document.getElementById('reload-btn');
         const badge = document.getElementById('reload-badge');
-        if (!badge) return;
+        if (!btn || !badge) return;
+
         if (window.pendingUpdates > 0) {
+            btn.style.display = 'inline-flex';
             badge.textContent = window.pendingUpdates;
             badge.style.display = 'inline-block';
         } else {
+            btn.style.display = 'none';
             badge.style.display = 'none';
         }
     }
@@ -37,12 +41,10 @@
     };
 
     // ── Configuration ──────────────────────────────────────────────────
-    // Hostinger: Use the domain tms.ghcoor.com without port (proxied)
     const SOCKET_PATH = '/apps/socket.io/';
-    // Use the same origin as the page (no port needed, proxied through web server)
     const SOCKET_URL = window.__socketUrl || 'https://tms.ghcoor.com';
 
-    // ── LOCALHOST FIX: Detect if running on localhost ────────────────
+    // ── LOCALHOST FIX ────────────────────────────────────────────────
     const isLocalhost = window.location.hostname === 'localhost' || 
                         window.location.hostname === '127.0.0.1' ||
                         window.location.hostname.startsWith('192.168.') ||
@@ -50,8 +52,6 @@
                         window.location.hostname.endsWith('.local');
 
     // ── Socket.IO Connection Options ──────────────────────────────────
-    // Force WebSocket transport on localhost to bypass Cloudflare Access
-    // which intercepts polling requests and redirects to a login page
     const SOCKET_OPTIONS = {
         path: SOCKET_PATH,
         transports: isLocalhost ? ['websocket'] : ['polling', 'websocket'],
@@ -69,7 +69,6 @@
         if (typeof currentUser !== 'undefined' && currentUser) {
             return currentUser.id || currentUser.username || null;
         }
-        // Try to get from session
         if (window.__tmsUser) {
             return window.__tmsUser.id || window.__tmsUser.username || null;
         }
@@ -92,12 +91,10 @@
     // ── Check if Socket.IO is available ──────────────────────────────
     if (typeof io === 'undefined') {
         console.warn('socket-handler: socket.io client library not loaded — real-time updates disabled');
-        // Try to load it dynamically
         const script = document.createElement('script');
         script.src = `${SOCKET_URL}${SOCKET_PATH}socket.io.js`;
         script.onload = function() {
             console.log('socket-handler: Socket.IO client loaded dynamically, reinitializing...');
-            // Re-run initialization after load
             setTimeout(initSocket, 100);
         };
         script.onerror = function() {
@@ -119,32 +116,16 @@
         console.log(`socket-handler: Transport: ${SOCKET_OPTIONS.transports.join(', ')}`);
 
         const socket = io(SOCKET_URL, SOCKET_OPTIONS);
-
-        // Expose socket globally for debugging
         window.__tmsSocket = socket;
 
         // ── Helper: Was this event triggered by the current user? ────────
         function wasTriggeredByCurrentUser(data) {
             if (!data) return false;
-            
-            // Check various possible originator fields
-            if (data.originatorId) {
-                return data.originatorId === CURRENT_USER_ID;
-            }
-            if (data.originatorContactId) {
-                return data.originatorContactId === CURRENT_CONTACT_ID;
-            }
-            if (data.userId) {
-                return data.userId === CURRENT_USER_ID;
-            }
-            if (data.contactId) {
-                return data.contactId === CURRENT_CONTACT_ID;
-            }
-            if (data.actorId) {
-                return data.actorId === CURRENT_USER_ID || data.actorId === CURRENT_CONTACT_ID;
-            }
-            
-            // If we can't determine, assume it was NOT us (process it)
+            if (data.originatorId) return data.originatorId === CURRENT_USER_ID;
+            if (data.originatorContactId) return data.originatorContactId === CURRENT_CONTACT_ID;
+            if (data.userId) return data.userId === CURRENT_USER_ID;
+            if (data.contactId) return data.contactId === CURRENT_CONTACT_ID;
+            if (data.actorId) return data.actorId === CURRENT_USER_ID || data.actorId === CURRENT_CONTACT_ID;
             return false;
         }
 
@@ -161,12 +142,10 @@
             }
         }
 
-        // ── Helper: Update UI without notifications ──────────────────────
         function updateUI(fnName, ...args) {
             call(fnName, ...args);
         }
 
-        // ── Helper: Show notification via manager ────────────────────────
         function showNotification(message, type = 'info') {
             if (typeof NotificationManager !== 'undefined' && NotificationManager.show) {
                 NotificationManager.show(message, type);
@@ -179,7 +158,6 @@
             }
         }
 
-        // ── Helper: Capitalize first letter ──────────────────────────────
         function capitalize(s) {
             return s.charAt(0).toUpperCase() + s.slice(1);
         }
@@ -190,8 +168,6 @@
 
         socket.on('connect', () => {
             console.log('✅ socket-handler: connected', socket.id);
-            
-            // Authenticate with the server
             socket.emit('authenticate', {
                 userId: CURRENT_USER_ID,
                 contactId: CURRENT_CONTACT_ID,
@@ -209,16 +185,12 @@
 
         socket.on('connect_error', (err) => {
             console.warn('socket-handler: connect_error', err.message);
-            
-            // LOCALHOST FIX: If WebSocket fails on localhost, try polling as fallback
             if (isLocalhost && err.message.includes('WebSocket')) {
                 console.log('socket-handler: WebSocket failed on localhost, trying polling fallback...');
                 socket.io.opts.transports = ['polling', 'websocket'];
                 setTimeout(() => socket.connect(), 1000);
                 return;
             }
-            
-            // Retry with different transport if polling fails
             if (err.message.includes('polling')) {
                 console.log('socket-handler: Retrying with websocket only...');
                 socket.io.opts.transports = ['websocket'];
@@ -258,16 +230,11 @@
             }
             updateUI('appendDealCard', data, data.stage);
             updateUI('updateBadges');
-            
-            const taskTitle = data.title || 'a task';
-            showNotification(`New task: ${taskTitle}`, 'info');
+            showNotification(`New task: ${data.title || 'a task'}`, 'info');
         });
 
         socket.on('deal:updated', (data) => {
-            if (wasTriggeredByCurrentUser(data)) {
-                // console.debug('socket-handler: skipping own deal:updated event');
-                return;
-            }
+            if (wasTriggeredByCurrentUser(data)) return;
             updateUI('updateDealCard', data.id, data);
             updateUI('updateBadges');
         });
@@ -279,9 +246,7 @@
             }
             updateUI('removeDealCard', data.id);
             updateUI('updateBadges');
-            
-            const taskTitle = data.title || 'a task';
-            showNotification(`Task deleted: ${taskTitle}`, 'warning');
+            showNotification(`Task deleted: ${data.title || 'a task'}`, 'warning');
         });
 
         socket.on('deal:stage-changed', (data) => {
@@ -292,11 +257,9 @@
             updateUI('updateStageColumn', data.fromStage);
             updateUI('updateStageColumn', data.toStage);
             updateUI('updateBadges');
-            
-            const taskTitle = data.title || 'a task';
             const fromLabel = data.fromStageLabel || data.fromStage;
             const toLabel = data.toStageLabel || data.toStage;
-            showNotification(`Task "${taskTitle}" moved: ${fromLabel} → ${toLabel}`, 'info');
+            showNotification(`Task "${data.title || 'a task'}" moved: ${fromLabel} → ${toLabel}`, 'info');
         });
 
         // ──────────────────────────────────────────────────────────────────
@@ -310,42 +273,15 @@
             }
             updateUI('prependActivity', data);
 
-            // ── Increment pending updates badge ──
+            // ── Increment pending updates and show badge/button ──
             window.pendingUpdates++;
             updateReloadBadge();
 
-            // ── Minimal Kanban realtime refresh ──────────────────────────
-            // activity:new fires alongside a dedicated entity event
-            // (deal:updated, note:created, contact:updated, etc — see
-            // BROADCAST_ENTITY_TABLES in api.php) for every table that has
-            // one of its own. Reloading here TOO for those categories is a
-            // duplicate broadcast: the granular handler above already
-            // patched the board precisely, and this would immediately wipe
-            // + re-render the whole thing again with the same data.
-            //
-            // stages is the one table with NO dedicated broadcast event
-            // (not in BROADCAST_ENTITY_TABLES), so stage/permission edits
-            // only ever surface through this activity log entry — that's
-            // the actual case this reload exists for.
-            //
-            // Category is inferred server-side from the activity message
-            // text (see ACTIVITY_RULES in activity.js) — if that rule list
-            // changes, this skip-list should be revisited.
+            // ── Minimal Kanban realtime refresh ──
             const ENTITY_COVERED_CATEGORIES = new Set([
                 'task', 'task-move', 'comment', 'revision', 'done', 'file', 'role'
             ]);
-
             if (!ENTITY_COVERED_CATEGORIES.has(data.category)) {
-                // Two guards, both already established elsewhere in this file:
-                //   - wasTriggeredByCurrentUser() above already returned if
-                //     this was our own echoed action — we have that data
-                //     locally.
-                //   - currentPage === 'kanban': only refetch if Kanban is
-                //     the page actually on screen right now (same pattern
-                //     as activity.js's dashboard auto-refresh checking
-                //     page-dashboard.classList.contains('active')). If the
-                //     user is elsewhere, do nothing — Kanban gets fresh
-                //     data next time it's opened.
                 if (typeof window.currentPage !== 'undefined' && window.currentPage === 'kanban') {
                     if (typeof window.RealtimeSync !== 'undefined' && window.RealtimeSync.reloadData) {
                         window.RealtimeSync.reloadData();
@@ -353,8 +289,6 @@
                 }
             }
         });
-
-        // task activity is handled by activity:new above, so no separate task-activity:new handler is needed
 
         // ──────────────────────────────────────────────────────────────────
         //  NOTES / COMMENTS / REVISIONS
@@ -367,17 +301,13 @@
             }
             updateUI('addNote', data);
             updateUI('updateBadges');
-            
             const noteTitle = data.title || 'a note';
             const noteType = data.type === 'revision' ? 'Revision' : 'Comment';
             showNotification(`${noteType} added: ${noteTitle}`, data.type === 'revision' ? 'warning' : 'info');
         });
 
         socket.on('note:updated', (data) => {
-            if (wasTriggeredByCurrentUser(data)) {
-                // console.debug('socket-handler: skipping own note:updated event');
-                return;
-            }
+            if (wasTriggeredByCurrentUser(data)) return;
             updateUI('updateNote', data.id, data);
             updateUI('updateBadges');
         });
@@ -389,9 +319,7 @@
             }
             updateUI('removeNote', data.id);
             updateUI('updateBadges');
-            
-            const noteTitle = data.title || 'a note';
-            showNotification(`Note deleted: ${noteTitle}`, 'warning');
+            showNotification(`Note deleted: ${data.title || 'a note'}`, 'warning');
         });
 
         // ──────────────────────────────────────────────────────────────────
@@ -405,16 +333,11 @@
             }
             updateUI('addAnnouncement', data);
             updateUI('updateBadges');
-            
-            const title = data.title || 'an announcement';
-            showNotification(`New announcement: ${title}`, 'success');
+            showNotification(`New announcement: ${data.title || 'an announcement'}`, 'success');
         });
 
         socket.on('announcement:updated', (data) => {
-            if (wasTriggeredByCurrentUser(data)) {
-                console.debug('socket-handler: skipping own announcement:updated event');
-                return;
-            }
+            if (wasTriggeredByCurrentUser(data)) return;
             updateUI('updateAnnouncement', data.id, data);
             updateUI('updateBadges');
         });
@@ -439,16 +362,12 @@
             }
             updateUI('addContact', data);
             updateUI('updateBadges');
-            
             const name = data.fname && data.lname ? `${data.fname} ${data.lname}` : 'an employee';
             showNotification(`New employee: ${name}`, 'success');
         });
 
         socket.on('contact:updated', (data) => {
-            if (wasTriggeredByCurrentUser(data)) {
-                console.debug('socket-handler: skipping own contact:updated event');
-                return;
-            }
+            if (wasTriggeredByCurrentUser(data)) return;
             updateUI('updateContact', data.id, data);
             updateUI('updateBadges');
         });
@@ -460,13 +379,12 @@
             }
             updateUI('removeContact', data.id);
             updateUI('updateBadges');
-            
             const name = data.fname && data.lname ? `${data.fname} ${data.lname}` : 'an employee';
             showNotification(`Employee deleted: ${name}`, 'warning');
         });
 
         // ──────────────────────────────────────────────────────────────────
-        //  DEPARTMENTS
+        //  DEPARTMENTS, COMPANIES, USERS, ROLES
         // ──────────────────────────────────────────────────────────────────
 
         socket.on('department:created', (data) => {
@@ -476,20 +394,13 @@
             }
             updateUI(`add${capitalize('department')}Record`, data);
             updateUI('updateBadges');
-            
-            const name = data.name || 'a department';
-            showNotification(`New department: ${name}`, 'success');
+            showNotification(`New department: ${data.name || 'a department'}`, 'success');
         });
-
         socket.on('department:updated', (data) => {
-            if (wasTriggeredByCurrentUser(data)) {
-                console.debug('socket-handler: skipping own department:updated event');
-                return;
-            }
+            if (wasTriggeredByCurrentUser(data)) return;
             updateUI(`update${capitalize('department')}Record`, data.id, data);
             updateUI('updateBadges');
         });
-
         socket.on('department:deleted', (data) => {
             if (wasTriggeredByCurrentUser(data)) {
                 console.debug('socket-handler: skipping own department:deleted event');
@@ -499,10 +410,6 @@
             updateUI('updateBadges');
         });
 
-        // ──────────────────────────────────────────────────────────────────
-        //  COMPANIES
-        // ──────────────────────────────────────────────────────────────────
-
         socket.on('company:created', (data) => {
             if (wasTriggeredByCurrentUser(data)) {
                 console.debug('socket-handler: skipping own company:created event');
@@ -510,20 +417,13 @@
             }
             updateUI(`add${capitalize('company')}Record`, data);
             updateUI('updateBadges');
-            
-            const name = data.name || 'a company';
-            showNotification(`New company: ${name}`, 'success');
+            showNotification(`New company: ${data.name || 'a company'}`, 'success');
         });
-
         socket.on('company:updated', (data) => {
-            if (wasTriggeredByCurrentUser(data)) {
-                console.debug('socket-handler: skipping own company:updated event');
-                return;
-            }
+            if (wasTriggeredByCurrentUser(data)) return;
             updateUI(`update${capitalize('company')}Record`, data.id, data);
             updateUI('updateBadges');
         });
-
         socket.on('company:deleted', (data) => {
             if (wasTriggeredByCurrentUser(data)) {
                 console.debug('socket-handler: skipping own company:deleted event');
@@ -533,86 +433,47 @@
             updateUI('updateBadges');
         });
 
-   
-        // ──────────────────────────────────────────────────────────────────
-        //  USERS
-        // ──────────────────────────────────────────────────────────────────
-   
-
         // ──────────────────────────────────────────────────────────────────
         //  LOGIN MONITORING / EMPLOYEE DIRECTORY
         // ──────────────────────────────────────────────────────────────────
 
         socket.on('login:success', (data) => {
-            // Skip entirely if this is our own login — the user who just
-            // logged in doesn't need a toast/UI update telling them they
-            // logged in. Only OTHER connected clients should be notified.
             if (wasTriggeredByCurrentUser(data)) {
-                console.debug('socket-handler: skipping own login:success event (toast + UI)');
+                console.debug('socket-handler: skipping own login:success event');
                 return;
             }
-
             if (typeof NotificationManager !== 'undefined') {
                 const name = data.employeeName || data.username || 'Someone';
                 NotificationManager.show(`${name} logged in`, 'login');
             }
-
             updateUI('appendLoginLog', data, 'login');
             updateUI('updateEmployeeStatus', data.employeeId, 'online');
         });
 
         socket.on('login:failed', (data) => {
-            // Always show failed login toasts (security event)
             if (typeof NotificationManager !== 'undefined') {
                 const name = data.employeeName || data.username || 'Someone';
                 const reason = data.failureReason ? ` (${data.failureReason})` : '';
                 NotificationManager.show(`Failed login attempt: ${name}${reason}`, 'error');
             }
-            
-            // Skip UI updates if it's our own event
             if (wasTriggeredByCurrentUser(data)) {
                 console.debug('socket-handler: skipping own login:failed UI update');
                 return;
             }
-            
             updateUI('appendLoginLog', data, 'login');
         });
 
         socket.on('logout', (data) => {
-            // Skip entirely if this is our own logout — same reasoning as
-            // login:success above. Only other connected clients get notified.
             if (wasTriggeredByCurrentUser(data)) {
-                console.debug('socket-handler: skipping own logout event (toast + UI)');
+                console.debug('socket-handler: skipping own logout event');
                 return;
             }
-
             if (typeof NotificationManager !== 'undefined') {
                 const name = data.employeeName || data.username || 'Someone';
                 NotificationManager.show(`${name} logged out`, 'logout');
             }
-
             updateUI('appendLoginLog', data, 'logout');
             updateUI('updateEmployeeStatus', data.employeeId, 'offline');
-        });
-
-        // ──────────────────────────────────────────────────────────────────
-        //  DASHBOARD / PROFILE REFRESH
-        // ──────────────────────────────────────────────────────────────────
-
-        socket.on('dashboard:refresh', () => {
-            // Silent refresh - no notification
-            updateUI('updateDashboardStats');
-            updateUI('renderActivityList');
-            updateUI('updateBadges');
-        });
-
-        socket.on('profile:refresh', (data) => {
-            const current = typeof getCurrentUser === 'function' ? getCurrentUser() : null;
-            if (current && data && current.id === data.userId) {
-                // Silent refresh - no notification
-                updateUI('updateProfileTasks');
-                updateUI('updateBadges');
-            }
         });
 
         // ──────────────────────────────────────────────────────────────────
@@ -626,9 +487,7 @@
             }
             updateUI('addFile', data);
             updateUI('updateBadges');
-            
-            const fileName = data.title || data.originalFilename || 'a file';
-            showNotification(`File uploaded: ${fileName}`, 'success');
+            showNotification(`File uploaded: ${data.title || data.originalFilename || 'a file'}`, 'success');
         });
 
         socket.on('file:deleted', (data) => {
@@ -638,9 +497,7 @@
             }
             updateUI('removeFile', data.id);
             updateUI('updateBadges');
-            
-            const fileName = data.title || 'a file';
-            showNotification(`File deleted: ${fileName}`, 'warning');
+            showNotification(`File deleted: ${data.title || 'a file'}`, 'warning');
         });
 
         // ──────────────────────────────────────────────────────────────────
@@ -648,60 +505,21 @@
         // ──────────────────────────────────────────────────────────────────
 
         const HANDLED_EVENTS = new Set([
-            'welcome',
-            'authenticated',
-
-            'deal:created',
-            'deal:updated',
-            'deal:deleted',
-            'deal:stage-changed',
-
-            'activity:new',
-            'task-activity:new',
-
-            'note:created',
-            'note:updated',
-            'note:deleted',
-
-            'announcement:created',
-            'announcement:updated',
-            'announcement:deleted',
-
-            'contact:created',
-            'contact:updated',
-            'contact:deleted',
-
-            'department:created',
-            'department:updated',
-            'department:deleted',
-
-            'company:created',
-            'company:updated',
-            'company:deleted',
-
-            'role:created',
-            'role:updated',
-            'role:deleted',
-
-            'user:created',
-            'user:updated',
-            'user:deleted'
+            'welcome', 'authenticated',
+            'deal:created', 'deal:updated', 'deal:deleted', 'deal:stage-changed',
+            'activity:new', 'task-activity:new',
+            'note:created', 'note:updated', 'note:deleted',
+            'announcement:created', 'announcement:updated', 'announcement:deleted',
+            'contact:created', 'contact:updated', 'contact:deleted',
+            'department:created', 'department:updated', 'department:deleted',
+            'company:created', 'company:updated', 'company:deleted',
+            'role:created', 'role:updated', 'role:deleted',
+            'user:created', 'user:updated', 'user:deleted'
         ]);
 
-        // ──────────────────────────────────────────────────────────────────
-        //  UNHANDLED EVENT LOGGING
-        // ──────────────────────────────────────────────────────────────────
-
         socket.onAny((eventName, ...args) => {
-            if (HANDLED_EVENTS.has(eventName)) {
-                return;
-            }
-
-            console.debug(
-                'socket-handler: unhandled event',
-                eventName,
-                args
-            );
+            if (HANDLED_EVENTS.has(eventName)) return;
+            console.debug('socket-handler: unhandled event', eventName, args);
         });
 
         // ── Expose debug helpers ──
@@ -721,41 +539,29 @@
         console.log(`✅ socket-handler: connecting to ${SOCKET_URL}${SOCKET_PATH}`);
         console.log(`✅ socket-handler: Localhost mode: ${isLocalhost ? 'ENABLED (WebSocket-only)' : 'DISABLED (standard)'}`);
 
-        // ── Cleanup on page unload ──
         window.addEventListener('beforeunload', function() {
-            if (socket && socket.connected) {
-                socket.disconnect();
-            }
+            if (socket && socket.connected) socket.disconnect();
         });
 
         return socket;
     }
 
-    // ── Initialize if Socket.IO is available ──
     if (typeof io !== 'undefined') {
         initSocket();
     }
-    
-    // Cleanly close the socket when the page enters browser cache
+
     window.addEventListener('pagehide', function () {
         const activeSocket = window.__tmsSocket;
-
         if (activeSocket && activeSocket.connected) {
             console.log('socket-handler: page hidden, disconnecting socket');
             activeSocket.disconnect();
         }
     });
 
-    // Reconnect after returning through browser Back/Forward navigation
-    // Disconnect cleanly before the page enters Back/Forward Cache
     window.addEventListener('pageshow', function (event) {
         const activeSocket = window.__tmsSocket;
-
         if (event.persisted && activeSocket && !activeSocket.connected) {
-            console.log(
-                'socket-handler: restored from back-forward cache, reconnecting'
-            );
-
+            console.log('socket-handler: restored from back-forward cache, reconnecting');
             activeSocket.connect();
         }
     });

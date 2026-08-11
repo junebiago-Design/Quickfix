@@ -251,12 +251,10 @@ function socketServerReachable(int $timeoutMs = 1000): bool
 //  🔥 CORE: FILTER EVENTS – ONLY LOGIN/LOGOUT + ACTIVITY
 // ══════════════════════════════════════════════
 
-// This function is called from everywhere. We now check the event name
-// and only forward it to Node if it is a login, logout, or activity:new event.
 function notifySocketServer(string $event, array $data = [], $originatorUserId = null, int $timeoutMs = null, bool $async = false)
 {
     // ── 🔥 FILTER: Only allow login/logout and activity:new ──
-    $allowedEvents = ['login:success', 'login:failed', 'logout', 'activity:new'];  // <-- ADDED activity:new
+    $allowedEvents = ['login:success', 'login:failed', 'logout', 'activity:new'];
     if (!in_array($event, $allowedEvents)) {
         // Silently ignore all other events (no log, no network call)
         return false;
@@ -310,7 +308,7 @@ function notifySocketServer(string $event, array $data = [], $originatorUserId =
     return socketNotifySync($jsonPayload, $event, $timeoutMs);
 }
 
-// ── Synchronous notification (unchanged) ────────────────────────────
+// ── Synchronous notification ─────────────────────────────────────────
 
 function socketNotifySync(string $jsonPayload, string $event, ?int $timeoutMs = null, int $retries = 0)
 {
@@ -386,7 +384,7 @@ function socketNotifySync(string $jsonPayload, string $event, ?int $timeoutMs = 
     return true;
 }
 
-// ── Asynchronous notification (unchanged) ───────────────────────────
+// ── Asynchronous notification ───────────────────────────────────────
 
 function socketNotifyAsync(string $jsonPayload, string $event)
 {
@@ -430,5 +428,4 @@ function socketNotifyAsync(string $jsonPayload, string $event)
 
     return true;
 }
-
-// ── Convenience functions (still defined, but they will be filtered) ──
+?>
