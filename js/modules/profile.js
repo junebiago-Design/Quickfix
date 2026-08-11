@@ -1,20 +1,7 @@
 // ══════════════════════════════════════════════
 //  PROFILE — js/modules/profile.js
-//  "My Profile" page: shows the logged-in user's own account + employee
-//  details, lets them change their OWN password only, and surfaces a
-//  personal slice of the data already loaded client-side (recent
-//  activity, active tasks, pending comments/revisions).
-//
-//  Depends on: session.js (currentUser, getCurrentEmployeeId), notes.js
-//  (getCurrentUserFullName, getNoteType, noteTypeBadge, getEmployeeNameById),
-//  helpers.js (fmtDate, fmtShortDate, statusBadge, priorityBadge, toast),
-//  activity.js (logActivity + whatever global holds the activity feed),
-//  roles.js (getRoleName), departments.js (getDepartmentName). Loaded as
-//  a classic script, shares the global scope — load AFTER users.js.
-//
-//  This module never lets a user change anyone's password but their own:
-//  it looks up the record matching currentUser (by id, falling back to
-//  username) inside the `users` array and only ever mutates that one row.
+//  UPDATED: My Active Tasks now rendered as
+//  deal cards (matching kanban.js design).
 // ══════════════════════════════════════════════
 
 // ── Small local helpers (defensive) ───────────────────────────────────
@@ -68,6 +55,74 @@ function profileInitials(name) {
     if (!parts.length) return '?';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// ── Deal card HTML (matching kanban.js style) ─────────────────────────
+
+function profileDealCardHTML(d) {
+    const dealContactIds = (d.contactIds && d.contactIds.length) ? d.contactIds : (d.contactId ? [d.contactId] : []);
+    const currentEmpId = (typeof getCurrentEmployeeId === 'function') ? getCurrentEmployeeId() : null;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isOverdue = d.due && d.due < todayStr;
+
+    // Assignee badges
+    const assigneeBadges = dealContactIds.map(id => {
+        const contact = contacts.find(c => c.id === id);
+        if (!contact) return '';
+        const isCurrentUser = id === currentEmpId;
+        return `<span class="assignee-badge ${isCurrentUser ? 'current-user-assignee' : ''}" title="${contact.fname} ${contact.lname}">
+            ${isCurrentUser ? '⭐ ' : ''}${contact.fname} ${contact.lname}
+        </span>`;
+    }).filter(Boolean).join(' ');
+
+    // Notes count
+    const dealNotes = notes.filter(n => n.dealId === d.id);
+    const revisionCount = dealNotes.filter(n => getNoteType(n) === 'revision').length;
+    const commentCount = dealNotes.filter(n => getNoteType(n) === 'comment').length;
+    const doneCount = dealNotes.filter(n => n.done === true).length;
+    const notesBadge = dealNotes.length ?
+        `<span class="deal-notes-count">${dealNotes.length} ${doneCount > 0 ? `(✓${doneCount})` : ''}</span>` :
+        '';
+
+    // Files count (if available)
+    let filesCount = 0;
+    if (typeof getDealFiles === 'function') {
+        filesCount = getDealFiles(d.id).length;
+    }
+
+    // Stage label
+    const stageLabel = stages.find(s => s.key === d.stage)?.label || d.stage || '';
+
+    return `
+        <div class="deal-card" style="cursor:pointer;" onclick="${typeof openDealViewOnly === 'function' ? `openDealViewOnly('${d.id}')` : `navigate('deals')`}">
+            <div class="deal-card-title">${d.title}</div>
+            ${d.desc ? `<div class="deal-card-desc">${d.desc}</div>` : ''}
+
+            <div class="deal-card-assignees">
+                ${assigneeBadges || '<span class="text-muted" style="font-size:0.7rem;">Unassigned</span>'}
+            </div>
+
+            ${d.department ? `<div class="deal-card-company">🏢 ${getDepartmentName(d.department)}</div>` : ''}
+            ${stageLabel ? `<div class="deal-card-company">🗂 ${stageLabel}</div>` : ''}
+
+            <div class="deal-card-meta">
+                <span class="task-due ${isOverdue ? 'overdue' : ''}" style="font-family:'DM Mono',monospace;">📅 ${fmtDate(d.due)}</span>
+                ${priorityBadge(d.priority)}
+            </div>
+
+            <div class="deal-card-notes-row">
+                <span class="deal-notes-toggle" style="cursor:default;">
+                    <span>💬 Notes</span>
+                    ${notesBadge}
+                </span>
+                ${typeof getDealFiles === 'function' ? `
+                <span class="deal-notes-toggle" style="cursor:default;">
+                    <span>📎 Files</span>
+                    <span class="deal-notes-count">${filesCount}</span>
+                </span>` : ''}
+            </div>
+        </div>
+    `;
 }
 
 // ── Main render ───────────────────────────────────────────────────────
@@ -132,6 +187,8 @@ function renderProfile() {
     }
 }
 
+// ── Render My Active Tasks as deal cards ─────────────────────────────
+
 function renderProfileTasks() {
     const listEl = document.getElementById('profile-tasks-list');
     const countEl = document.getElementById('profile-tasks-count');
@@ -146,23 +203,8 @@ function renderProfileTasks() {
             return;
         }
 
-        const today = new Date().toISOString().slice(0, 10);
-        listEl.innerHTML = myDeals.map(d => {
-            const stageLabel = (typeof stages !== 'undefined' ? stages.find(s => s.key === d.stage)?.label : '') || d.stage || '';
-            const isOverdue = d.due && d.due < today;
-            return `
-          <div class="task-item" style="cursor:pointer;" onclick="${typeof openDealViewOnly === 'function' ? `openDealViewOnly('${d.id}')` : `navigate('deals')`}">
-            <div class="task-body">
-              <div class="task-title">${d.title}</div>
-              <div class="task-meta">
-                <span class="task-due ${isOverdue ? 'overdue' : ''}">📅 ${(typeof fmtDate === 'function') ? fmtDate(d.due) : d.due}</span>
-                <span class="task-assignee">🗂 ${stageLabel}</span>
-                ${(typeof priorityBadge === 'function') ? priorityBadge(d.priority) : ''}
-              </div>
-            </div>
-          </div>
-        `;
-        }).join('');
+        // Render each deal as a card (similar to kanban.js)
+        listEl.innerHTML = myDeals.map(d => profileDealCardHTML(d)).join('');
     } catch (err) {
         console.error('Error in renderProfileTasks:', err);
         listEl.innerHTML = `<div class="empty-state" style="padding:30px 20px;"><span class="es-icon">⚠️</span><p>Error loading tasks</p></div>`;
@@ -286,4 +328,4 @@ function changeMyPassword() {
 window.renderProfile = renderProfile;
 window.changeMyPassword = changeMyPassword;
 
-console.log('✅ Profile module loaded');
+console.log('✅ Profile module loaded (with deal-card style tasks)');

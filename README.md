@@ -1,3 +1,17 @@
+# 1.1.0 update
+
+Each card shows:
+
+- Task title (clickable → opens the read‑only view modal or switches to the Task page)
+- Description preview (if any)
+- Assignee badges (with a star for the current user)
+- Department / stage label
+- Due date (highlighted overdue)
+- Priority badge
+- Notes count (comments + revisions)
+- “Files” count (if the `getDealFiles` helper is available)
+
+
 ### Summary of Updates to dashboard.js
 
 	#Removed the Total Employees and Total Roles stat cards.
