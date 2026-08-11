@@ -1431,22 +1431,13 @@ $user = $_SESSION['user'];
         <div id="toast-container"></div>
 
     </div><!-- end #app-shell -->
-    <!-- Load Notification Manager FIRST (before any other modules) -->
 
-    <!-- ===== SCRIPTS ===== -->
-<<<<<<< Updated upstream
-   <script src="js/core/api-client.js?v=live-20260731-02"></script>
-<script src="js/services/roles.js"></script>
-<script src="js/services/stages.js"></script>
-<script src="js/services/auth.js"></script>
-
+    <!-- ===== SCRIPTS (order fixed: profile.js BEFORE dashboard.js) ===== -->
     <script src="js/core/api-client.js?v=live-20260731-02"></script>
     <script src="js/services/realtime.js"></script>
     <script src="js/services/roles.js"></script>
     <script src="js/services/stages.js"></script>
     <script src="js/services/auth.js"></script>
-
-
 
     <script src="js/modules/theme.js"></script>
     <script src="js/modules/session.js"></script>
@@ -1456,6 +1447,8 @@ $user = $_SESSION['user'];
     <script src="js/modules/task-activity-writer.js"></script>
     <script src="js/modules/task-activity.js"></script>
     <script src="js/modules/seed.js"></script>
+    <!-- profile.js loaded BEFORE dashboard.js so profileDealCardHTML is defined -->
+    <script src="js/modules/profile.js"></script>
     <script src="js/modules/dashboard.js"></script>
     <script src="js/modules/employee-directory.js"></script>
     <script src="js/modules/contacts.js"></script>
@@ -1464,34 +1457,26 @@ $user = $_SESSION['user'];
     <script src="js/modules/kanban.js?v=20260810-01"></script>
     <script src="js/modules/modals.js"></script>
     <script src="js/modules/deals.js"></script>
-	<script src="js/modules/attachments.js?v=20260803-03"></script>
+    <script src="js/modules/attachments.js?v=20260803-03"></script>
     <script src="js/modules/announcements.js"></script>
     <script src="js/modules/departments.js"></script>
     <script src="js/modules/roles.js"></script>
     <script src="js/core/page-permissions.js"></script>
     <script src="js/modules/users.js"></script>
-    <script src="js/modules/profile.js"></script>
     <script src="js/modules/companies.js"></script>
     <script src="js/modules/login-monitoring.js"></script>
     <script src="js/modules/init.js"></script>
 
     <!-- ===== REAL-TIME (SOCKET.IO) ===== -->
-    <!-- Socket.IO client library (CDN) -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <!-- Realtime Sync Manager: re-fetches deals/contacts/notes/stages/roles/
-         companies/departments/users from api.php and re-renders whenever a
-         socket event changes server-side data, instead of trusting the
-         granular per-event patches to carry every changed field. Must load
-         BEFORE socket-handler.js, which calls window.RealtimeSync.reloadData(). -->
     <script src="js/modules/realtime-sync.js?v=20260804-01"></script>
-    <!-- Custom socket handler (must be loaded after all other modules so the functions it calls are defined) -->
-<script src="js/modules/socket-handler.js?v=20260804-01"></script>
-    <!-- ===== LOGIN MONITORING INTEGRATION ===== -->
+    <script src="js/modules/socket-handler.js?v=20260804-01"></script>
+
     <script>
+        // ── login monitoring integration, logout, etc. ──
         (function() {
             'use strict';
 
-            // ── Ensure login monitoring renders when page is shown ──
             function renderLoginMonitoringIfActive() {
                 var lmPage = document.getElementById('page-login-monitoring');
                 if (lmPage && lmPage.classList.contains('active') && typeof renderLoginMonitoring === 'function') {
@@ -1499,19 +1484,14 @@ $user = $_SESSION['user'];
                 }
             }
 
-            // ── Hook into DOM ready ──
             document.addEventListener('DOMContentLoaded', function() {
-                // Render task activity if active
                 var page = document.getElementById('page-task-activity');
                 if (page && page.classList.contains('active') && typeof renderTaskActivity === 'function') {
                     renderTaskActivity(1);
                 }
-                
-                // Render login monitoring if active
                 renderLoginMonitoringIfActive();
             });
 
-            // ── Hook into reloadAllData ──
             if (typeof reloadAllData === 'function') {
                 var originalReload = window.reloadAllData;
                 window.reloadAllData = function() {
@@ -1525,7 +1505,6 @@ $user = $_SESSION['user'];
                 };
             }
 
-            // ── Hook into navigate ──
             if (typeof navigate === 'function') {
                 var originalNavigate = window.navigate;
                 window.navigate = function(page) {
@@ -1545,12 +1524,10 @@ $user = $_SESSION['user'];
                 };
             }
 
-            // ── Handle visibility change (user returns to tab) ──
             document.addEventListener('visibilitychange', function() {
                 if (!document.hidden) {
                     var lmPage = document.getElementById('page-login-monitoring');
                     if (lmPage && lmPage.classList.contains('active')) {
-                        // Refresh data when user returns to the tab
                         if (typeof refreshLoginData === 'function') {
                             refreshLoginData().then(function() {
                                 if (typeof filterLoginLogs === 'function') {
@@ -1563,10 +1540,8 @@ $user = $_SESSION['user'];
             });
 
             console.log('✅ Login monitoring integration complete');
-
         })();
 
-        // ── Logout function ──
         function logout() {
             if (confirm('Are you sure you want to logout?')) {
                 window.location.href = 'auth.php?action=logout';
