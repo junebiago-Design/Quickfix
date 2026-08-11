@@ -4,7 +4,9 @@
 //  Shared include used by api.php, auth.php, and anywhere else that
 //  needs to push a real‑time event to the Node.js Socket.IO server.
 //
-//  UPDATED: Allowed events: login:success, login:failed, logout, activity:new
+//  UPDATED: Filtered to ONLY broadcast login and logout events.
+//  All other events (deal:*, note:*, contact:*, etc.) are silently
+//  ignored to reduce server load and log noise.
 // ══════════════════════════════════════════════
 
 // ── Configuration ─────────────────────────────────────────────────────
@@ -21,7 +23,7 @@ if (!defined('SOCKET_SERVER_URL')) {
     if ($override) {
         define('SOCKET_SERVER_URL', $override);
     } else {
-        define('SOCKET_SERVER_URL', 'http://127.0.0.1:3000/update');
+        define('SOCKET_SERVER_URL', '<http://127.0.0.1:3000/update>');
     }
 }
 
@@ -248,17 +250,21 @@ function socketServerReachable(int $timeoutMs = 1000): bool
 }
 
 // ══════════════════════════════════════════════
-//  🔥 CORE: FILTER EVENTS – ONLY LOGIN/LOGOUT + ACTIVITY
+//  🔥 CORE: FILTER EVENTS – ONLY LOGIN/LOGOUT
 // ══════════════════════════════════════════════
 
+// This function is called from everywhere. We now check the event name
+// and only forward it to Node if it is a login or logout event.
 function notifySocketServer(string $event, array $data = [], $originatorUserId = null, int $timeoutMs = null, bool $async = false)
 {
-    // ── 🔥 FILTER: Only allow login/logout and activity:new ──
-    $allowedEvents = ['login:success', 'login:failed', 'logout', 'activity:new'];
+    // ── 🔥 FILTER: Only allow login/logout events ──
+    $allowedEvents = ['login:success', 'login:failed', 'logout'];
     if (!in_array($event, $allowedEvents)) {
         // Silently ignore all other events (no log, no network call)
         return false;
     }
+
+    // ── (Rest of the function unchanged, except we added the filter) ──
 
     // Validate event name (redundant but safe)
     if (empty($event)) {
@@ -308,7 +314,7 @@ function notifySocketServer(string $event, array $data = [], $originatorUserId =
     return socketNotifySync($jsonPayload, $event, $timeoutMs);
 }
 
-// ── Synchronous notification ─────────────────────────────────────────
+// ── Synchronous notification (unchanged) ────────────────────────────
 
 function socketNotifySync(string $jsonPayload, string $event, ?int $timeoutMs = null, int $retries = 0)
 {
@@ -384,7 +390,7 @@ function socketNotifySync(string $jsonPayload, string $event, ?int $timeoutMs = 
     return true;
 }
 
-// ── Asynchronous notification ───────────────────────────────────────
+// ── Asynchronous notification (unchanged) ───────────────────────────
 
 function socketNotifyAsync(string $jsonPayload, string $event)
 {
@@ -428,4 +434,7 @@ function socketNotifyAsync(string $jsonPayload, string $event)
 
     return true;
 }
-?>
+
+// ── Convenience functions (still defined, but they will be filtered) ──
+
+// ... (all the notify functions remain, but notifySocketServer will filter them)

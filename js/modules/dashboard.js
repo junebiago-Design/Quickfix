@@ -261,6 +261,6 @@ function renderDashboardUpcoming() {
 // Expose globally
 window.renderDashboard = renderDashboard;
 window.dashboardGoToActivityPage = dashboardGoToActivityPage;
-window.renderDashboardMyTasks = renderDashboardMyTasks;
+//window.renderDashboardMyTasks = renderDashboardMyTasks;
 
 console.log('✅ Dashboard module loaded (pagination top, scroll added)');
