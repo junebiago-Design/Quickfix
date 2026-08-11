@@ -1,7 +1,13 @@
 // ══════════════════════════════════════════════
 //  DASHBOARD — js/modules/dashboard.js
-//  UPDATED: Uses renderRecentActivityList(10)
+//  UPDATED:
+//  - Pagination moved to top of Recent Activity
+//  - Scroll bars added to activity and tasks cards
 // ══════════════════════════════════════════════
+
+// ── Pagination state for dashboard activity ──
+let dashboardActivityPage = 1;
+const DASHBOARD_ACTIVITY_PER_PAGE = 10;
 
 function renderDashboard() {
     const finalStageKeys = new Set(stages.filter(s => s.final).map(s => s.key));
@@ -51,7 +57,7 @@ function rebuildDashboardGrid(activeDeals) {
 
     grid.innerHTML = '';
 
-    // ── Column 1: Recent Activity (limit 10) ──
+    // ── Column 1: Recent Activity with top pagination & scroll ──
     const activityCol = document.createElement('div');
     activityCol.className = 'card';
     activityCol.innerHTML = `
@@ -59,18 +65,23 @@ function rebuildDashboardGrid(activeDeals) {
             <span>Recent Activity</span>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-activity-count"></span>
         </div>
-        <div class="card-body">
-            <ul class="activity-list" id="dashboard-activity-list">
-                <li class="empty-state" style="padding:40px 20px;">
-                    <span class="es-icon">◌</span>
-                    <p>No activity yet. Start by adding employees or tasks.</p>
-                </li>
-            </ul>
+        <div class="card-body" style="padding:0 16px 16px;">
+            <div id="dashboard-activity-pagination-top" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px;">
+                <!-- Pagination controls will be rendered here -->
+            </div>
+            <div class="activity-scroll-container" style="max-height:400px;overflow-y:auto;padding-right:4px;">
+                <ul class="activity-list" id="dashboard-activity-list" style="margin:0;padding:0;">
+                    <li class="empty-state" style="padding:40px 20px;">
+                        <span class="es-icon">◌</span>
+                        <p>No activity yet. Start by adding employees or tasks.</p>
+                    </li>
+                </ul>
+            </div>
         </div>
     `;
     grid.appendChild(activityCol);
 
-    // ── Column 2: My Active Tasks ──
+    // ── Column 2: My Active Tasks with scroll ──
     const tasksCol = document.createElement('div');
     tasksCol.className = 'card';
     tasksCol.innerHTML = `
@@ -78,7 +89,9 @@ function rebuildDashboardGrid(activeDeals) {
             <span>My Active Tasks</span>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-my-tasks-count"></span>
         </div>
-        <div class="card-body" id="dashboard-my-tasks-body"></div>
+        <div class="card-body" style="padding:0 16px 16px;max-height:400px;overflow-y:auto;">
+            <div id="dashboard-my-tasks-body"></div>
+        </div>
     `;
     grid.appendChild(tasksCol);
 
@@ -95,21 +108,17 @@ function rebuildDashboardGrid(activeDeals) {
     grid.appendChild(upcomingCol);
 
     // ── Populate columns ──
-    // Render the 10 most recent activities using the new helper
-    if (typeof renderRecentActivityList === 'function') {
-        renderRecentActivityList(10, 'dashboard-activity-list', 'dashboard-activity-count');
-    } else {
-        // fallback
-        renderDashboardActivityListFallback();
-    }
+    dashboardActivityPage = 1;
+    renderDashboardActivityList();
     renderDashboardMyTasksContent(activeDeals);
     renderDashboardUpcoming();
 }
 
-// Fallback in case renderRecentActivityList isn't available
-function renderDashboardActivityListFallback() {
+// ── Render dashboard activity list with top pagination ──
+function renderDashboardActivityList() {
     const listEl = document.getElementById('dashboard-activity-list');
     const countEl = document.getElementById('dashboard-activity-count');
+    const paginationEl = document.getElementById('dashboard-activity-pagination-top');
     if (!listEl) return;
 
     let allActivity = [];
@@ -117,24 +126,34 @@ function renderDashboardActivityListFallback() {
         allActivity = activity.slice();
     }
 
-    if (countEl) countEl.textContent = allActivity.length;
+    allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
 
-    if (!allActivity.length) {
+    const total = allActivity.length;
+    const totalPages = Math.ceil(total / DASHBOARD_ACTIVITY_PER_PAGE) || 1;
+
+    if (dashboardActivityPage < 1) dashboardActivityPage = 1;
+    if (dashboardActivityPage > totalPages) dashboardActivityPage = totalPages;
+
+    const start = (dashboardActivityPage - 1) * DASHBOARD_ACTIVITY_PER_PAGE;
+    const end = Math.min(start + DASHBOARD_ACTIVITY_PER_PAGE, total);
+    const pageItems = allActivity.slice(start, end);
+
+    if (countEl) countEl.textContent = total;
+
+    if (!total) {
         listEl.innerHTML = `<li class="empty-state" style="padding:40px 20px;">
             <span class="es-icon">◌</span>
             <p>No activity yet. Start by adding employees or tasks.</p>
         </li>`;
+        if (paginationEl) paginationEl.innerHTML = '';
         return;
     }
-
-    const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
-    const displayItems = sorted.slice(0, 10);
 
     const timeFn = (typeof fmtRelativeTime === 'function') ? fmtRelativeTime :
                    (typeof fmtShortDate === 'function') ? fmtShortDate :
                    (iso => iso || '');
 
-    listEl.innerHTML = displayItems.map(a => {
+    listEl.innerHTML = pageItems.map(a => {
         let colorClass = a.color || 'accent';
         if (a.category === 'revision') colorClass = 'revision';
         else if (a.category === 'comment') colorClass = 'comment';
@@ -150,8 +169,39 @@ function renderDashboardActivityListFallback() {
             </li>
         `;
     }).join('');
+
+    // ── Render pagination at top ──
+    if (paginationEl) {
+        if (totalPages <= 1) {
+            paginationEl.innerHTML = `<span style="font-size:0.75rem;color:var(--text3);">Showing all ${total} entries</span>`;
+        } else {
+            const startNum = start + 1;
+            const endNum = end;
+            paginationEl.innerHTML = `
+                <span style="font-size:0.75rem;color:var(--text3);">${startNum}–${endNum} of ${total}</span>
+                <div style="display:flex;gap:6px;">
+                    <button class="btn btn-sm btn-ghost" onclick="dashboardGoToActivityPage(${dashboardActivityPage - 1})" ${dashboardActivityPage <= 1 ? 'disabled' : ''}>‹ Prev</button>
+                    <button class="btn btn-sm btn-ghost" onclick="dashboardGoToActivityPage(${dashboardActivityPage + 1})" ${dashboardActivityPage >= totalPages ? 'disabled' : ''}>Next ›</button>
+                </div>
+            `;
+        }
+    }
 }
 
+// ── Navigate dashboard activity to a specific page ──
+function dashboardGoToActivityPage(page) {
+    let allActivity = [];
+    if (typeof activity !== 'undefined' && Array.isArray(activity)) {
+        allActivity = activity.slice();
+    }
+    const total = allActivity.length;
+    const totalPages = Math.ceil(total / DASHBOARD_ACTIVITY_PER_PAGE) || 1;
+    if (page < 1 || page > totalPages) return;
+    dashboardActivityPage = page;
+    renderDashboardActivityList();
+}
+
+// ── Render My Active Tasks content (cards) with scroll ──
 function renderDashboardMyTasksContent(activeDeals) {
     const bodyEl = document.getElementById('dashboard-my-tasks-body');
     const countEl = document.getElementById('dashboard-my-tasks-count');
@@ -182,6 +232,7 @@ function renderDashboardMyTasksContent(activeDeals) {
     bodyEl.innerHTML = html;
 }
 
+// ── Render Upcoming Announcements ──
 function renderDashboardUpcoming() {
     const upEl = document.getElementById('dashboard-upcoming-body');
     if (!upEl) return;
@@ -209,4 +260,7 @@ function renderDashboardUpcoming() {
 
 // Expose globally
 window.renderDashboard = renderDashboard;
+window.dashboardGoToActivityPage = dashboardGoToActivityPage;
 window.renderDashboardMyTasks = renderDashboardMyTasks;
+
+console.log('✅ Dashboard module loaded (pagination top, scroll added)');
