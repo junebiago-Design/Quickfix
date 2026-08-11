@@ -33,6 +33,7 @@ if (file_exists($socketNotifierPath)) {
 if (!function_exists('notifySocketServer')) {
     function notifySocketServer(string $event, array $data, int $timeoutMs = 1500): bool { return false; }
 }
+
 // Database folder – one level up from dashboard/
 define('DATA_DIR', __DIR__ . '/../data');
 // Upload folder – at the CRM root, outside dashboard/
@@ -1022,7 +1023,8 @@ if ($action === 'uploadFile') {
     $uniqueFilename = ($safeBase ?: 'file') . '-' . str_replace('.', '', uniqid('', true)) . '.' . $extension;
     $destDir = $type === 'image' ? UPLOAD_DIR . '/tasks/images' : UPLOAD_DIR . '/tasks/files';
     $destAbsolutePath = $destDir . '/' . $uniqueFilename;
-    $relativePath = 'uploads/tasks/' . ($type === 'image' ? 'images' : 'files') . '/' . $uniqueFilename;
+    // Store public path with leading slash for direct access
+    $relativePath = '/uploads/tasks/' . ($type === 'image' ? 'images' : 'files') . '/' . $uniqueFilename;
 
     if (!@move_uploaded_file($file['tmp_name'], $destAbsolutePath)) {
         http_response_code(500);
@@ -1087,7 +1089,19 @@ if ($action === 'deleteFile') {
         exit;
     }
 
-    @unlink(__DIR__ . '/' . ltrim($record['path'] ?? '', '/'));
+    // Build absolute filesystem path using UPLOAD_DIR
+    $storedPath = $record['path'] ?? '';
+    $relativeFromUploads = preg_replace('#^/uploads/#', '', $storedPath);
+    if (strpos($relativeFromUploads, 'uploads/') === 0) {
+        $relativeFromUploads = substr($relativeFromUploads, strlen('uploads/'));
+    }
+    $fullPath = UPLOAD_DIR . '/' . $relativeFromUploads;
+    if (!file_exists($fullPath)) {
+        // Fallback to old path (relative to __DIR__)
+        $fullPath = __DIR__ . '/' . ltrim($storedPath, '/');
+    }
+    @unlink($fullPath);
+    
     $db = getDb();
     $stmt = $db->prepare("DELETE FROM files WHERE id = ?");
     $stmt->execute([$id]);
@@ -1149,10 +1163,28 @@ if ($action === 'downloadFile' || $action === 'serveFile') {
     foreach ($files as $f) {
         if (($f['id'] ?? null) === $id) { $record = $f; break; }
     }
-    if (!$record || !file_exists($path = __DIR__ . '/' . ltrim($record['path'] ?? '', '/'))) {
+    if (!$record) {
         http_response_code(404);
         echo json_encode(['ok' => false, 'error' => 'File not found']);
         exit;
+    }
+
+    // Build absolute filesystem path using UPLOAD_DIR
+    $storedPath = $record['path'] ?? '';
+    $relativeFromUploads = preg_replace('#^/uploads/#', '', $storedPath);
+    if (strpos($relativeFromUploads, 'uploads/') === 0) {
+        $relativeFromUploads = substr($relativeFromUploads, strlen('uploads/'));
+    }
+    $fullPath = UPLOAD_DIR . '/' . $relativeFromUploads;
+
+    if (!file_exists($fullPath)) {
+        // Fallback to old path (relative to __DIR__)
+        $fullPath = __DIR__ . '/' . ltrim($storedPath, '/');
+        if (!file_exists($fullPath)) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'File not found on disk']);
+            exit;
+        }
     }
 
     $disposition = ($action === 'serveFile') ? 'inline' : 'attachment';
@@ -1160,9 +1192,9 @@ if ($action === 'downloadFile' || $action === 'serveFile') {
     $mimeType = MIME_TYPES[$ext] ?? ($record['mimeType'] ?: 'application/octet-stream');
     header('Content-Type: ' . $mimeType);
     header('Content-Disposition: ' . $disposition . '; filename="' . basename($record['originalFilename']) . '"');
-    header('Content-Length: ' . filesize($path));
+    header('Content-Length: ' . filesize($fullPath));
     header('X-Content-Type-Options: nosniff');
-    readfile($path);
+    readfile($fullPath);
     exit;
 }
 
