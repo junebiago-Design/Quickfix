@@ -1,5 +1,6 @@
 // ══════════════════════════════════════════════
 //  DASHBOARD — js/modules/dashboard.js
+<<<<<<< HEAD
 //  UPDATED:
 <<<<<<< HEAD
 //  - Pagination moved to top of Recent Activity
@@ -9,11 +10,10 @@
 //  - Recent Activity filtered to current user only
 //  - Upcoming Announcements moved to a full‑width row below
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+//  UPDATED: Uses renderRecentActivityList(10)
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 // ══════════════════════════════════════════════
-
-// ── Pagination state for dashboard activity ──
-let dashboardActivityPage = 1;
-const DASHBOARD_ACTIVITY_PER_PAGE = 10;
 
 function renderDashboard() {
     const finalStageKeys = new Set(stages.filter(s => s.final).map(s => s.key));
@@ -73,10 +73,14 @@ function rebuildDashboardGrid(activeDeals) {
     grid.innerHTML = '';
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     // ── Column 1: Recent Activity with top pagination & scroll ──
 =======
     // ── Column 1: Recent Activity (filtered to current user) ──
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+    // ── Column 1: Recent Activity (limit 10) ──
+>>>>>>> parent of e6f06d4 (1.1.3 update)
     const activityCol = document.createElement('div');
     activityCol.className = 'card';
     activityCol.innerHTML = `
@@ -84,6 +88,7 @@ function rebuildDashboardGrid(activeDeals) {
             <span>My Recent Activity</span>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-activity-count"></span>
         </div>
+<<<<<<< HEAD
 <<<<<<< HEAD
         <div class="card-body" style="padding:0 16px 16px;">
             <div id="dashboard-activity-pagination-top" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px;">
@@ -98,19 +103,27 @@ function rebuildDashboardGrid(activeDeals) {
                 </ul>
             </div>
 =======
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
         <div class="card-body">
             <ul class="activity-list" id="dashboard-activity-list">
                 <li class="empty-state" style="padding:40px 20px;">
                     <span class="es-icon">◌</span>
+<<<<<<< HEAD
                     <p>No activity yet from your account.</p>
                 </li>
             </ul>
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+                    <p>No activity yet. Start by adding employees or tasks.</p>
+                </li>
+            </ul>
+>>>>>>> parent of e6f06d4 (1.1.3 update)
         </div>
     `;
     grid.appendChild(activityCol);
 
-    // ── Column 2: My Active Tasks with scroll ──
+    // ── Column 2: My Active Tasks ──
     const tasksCol = document.createElement('div');
     tasksCol.className = 'card';
     tasksCol.innerHTML = `
@@ -118,9 +131,7 @@ function rebuildDashboardGrid(activeDeals) {
             <span>My Active Tasks</span>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-my-tasks-count"></span>
         </div>
-        <div class="card-body" style="padding:0 16px 16px;max-height:400px;overflow-y:auto;">
-            <div id="dashboard-my-tasks-body"></div>
-        </div>
+        <div class="card-body" id="dashboard-my-tasks-body"></div>
     `;
     grid.appendChild(tasksCol);
 
@@ -138,14 +149,25 @@ function rebuildDashboardGrid(activeDeals) {
 
     // ── Populate columns ──
 <<<<<<< HEAD
+<<<<<<< HEAD
     dashboardActivityPage = 1;
 =======
 >>>>>>> parent of a55392e (Major Dashboard changes)
     renderDashboardActivityList();
+=======
+    // Render the 10 most recent activities using the new helper
+    if (typeof renderRecentActivityList === 'function') {
+        renderRecentActivityList(10, 'dashboard-activity-list', 'dashboard-activity-count');
+    } else {
+        // fallback
+        renderDashboardActivityListFallback();
+    }
+>>>>>>> parent of e6f06d4 (1.1.3 update)
     renderDashboardMyTasksContent(activeDeals);
     renderDashboardUpcoming();
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 // ── Render dashboard activity list with top pagination ──
 =======
@@ -153,9 +175,12 @@ function rebuildDashboardGrid(activeDeals) {
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
 function renderDashboardActivityList() {
+=======
+// Fallback in case renderRecentActivityList isn't available
+function renderDashboardActivityListFallback() {
+>>>>>>> parent of e6f06d4 (1.1.3 update)
     const listEl = document.getElementById('dashboard-activity-list');
     const countEl = document.getElementById('dashboard-activity-count');
-    const paginationEl = document.getElementById('dashboard-activity-pagination-top');
     if (!listEl) return;
 
     // Get current user's full name for filtering
@@ -180,6 +205,7 @@ function renderDashboardActivityList() {
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
 
     const total = allActivity.length;
@@ -200,14 +226,19 @@ function renderDashboardActivityList() {
 
     if (!filtered.length) {
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+    if (countEl) countEl.textContent = allActivity.length;
+
+    if (!allActivity.length) {
+>>>>>>> parent of e6f06d4 (1.1.3 update)
         listEl.innerHTML = `<li class="empty-state" style="padding:40px 20px;">
             <span class="es-icon">◌</span>
             <p>No activity yet from your account.</p>
         </li>`;
-        if (paginationEl) paginationEl.innerHTML = '';
         return;
     }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
     // Sort newest first
@@ -215,11 +246,16 @@ function renderDashboardActivityList() {
     const displayItems = sorted.slice(0, 20); // limit to 20
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+    const sorted = allActivity.sort((a, b) => new Date(b.createdAt || b.ts) - new Date(a.createdAt || a.ts));
+    const displayItems = sorted.slice(0, 10);
+
+>>>>>>> parent of e6f06d4 (1.1.3 update)
     const timeFn = (typeof fmtRelativeTime === 'function') ? fmtRelativeTime :
                    (typeof fmtShortDate === 'function') ? fmtShortDate :
                    (iso => iso || '');
 
-    listEl.innerHTML = pageItems.map(a => {
+    listEl.innerHTML = displayItems.map(a => {
         let colorClass = a.color || 'accent';
         if (a.category === 'revision') colorClass = 'revision';
         else if (a.category === 'comment') colorClass = 'comment';
@@ -235,25 +271,9 @@ function renderDashboardActivityList() {
             </li>
         `;
     }).join('');
-
-    // ── Render pagination at top ──
-    if (paginationEl) {
-        if (totalPages <= 1) {
-            paginationEl.innerHTML = `<span style="font-size:0.75rem;color:var(--text3);">Showing all ${total} entries</span>`;
-        } else {
-            const startNum = start + 1;
-            const endNum = end;
-            paginationEl.innerHTML = `
-                <span style="font-size:0.75rem;color:var(--text3);">${startNum}–${endNum} of ${total}</span>
-                <div style="display:flex;gap:6px;">
-                    <button class="btn btn-sm btn-ghost" onclick="dashboardGoToActivityPage(${dashboardActivityPage - 1})" ${dashboardActivityPage <= 1 ? 'disabled' : ''}>‹ Prev</button>
-                    <button class="btn btn-sm btn-ghost" onclick="dashboardGoToActivityPage(${dashboardActivityPage + 1})" ${dashboardActivityPage >= totalPages ? 'disabled' : ''}>Next ›</button>
-                </div>
-            `;
-        }
-    }
 }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 // ── Navigate dashboard activity to a specific page ──
 function dashboardGoToActivityPage(page) {
@@ -273,6 +293,8 @@ function dashboardGoToActivityPage(page) {
 // ── Render My Active Tasks content (cards) ────────────────────────────
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 function renderDashboardMyTasksContent(activeDeals) {
     const bodyEl = document.getElementById('dashboard-my-tasks-body');
     const countEl = document.getElementById('dashboard-my-tasks-count');
@@ -305,11 +327,14 @@ function renderDashboardMyTasksContent(activeDeals) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 // ── Render Upcoming Announcements ──
 =======
 // ── Render Upcoming Announcements (global) ────────────────────────────
 
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+>>>>>>> parent of e6f06d4 (1.1.3 update)
 function renderDashboardUpcoming() {
     const upEl = document.getElementById('dashboard-upcoming-body');
     if (!upEl) return;
@@ -338,6 +363,7 @@ function renderDashboardUpcoming() {
 // Expose globally
 window.renderDashboard = renderDashboard;
 <<<<<<< HEAD
+<<<<<<< HEAD
 window.dashboardGoToActivityPage = dashboardGoToActivityPage;
 window.renderDashboardMyTasks = renderDashboardMyTasks;
 
@@ -347,3 +373,6 @@ window.renderDashboardMyTasks = renderDashboardMyTasks; // kept for compatibilit
 
 console.log('✅ Dashboard module loaded (new layout: My Recent Activity + My Active Tasks side‑by‑side)');
 >>>>>>> parent of a55392e (Major Dashboard changes)
+=======
+window.renderDashboardMyTasks = renderDashboardMyTasks;
+>>>>>>> parent of e6f06d4 (1.1.3 update)
