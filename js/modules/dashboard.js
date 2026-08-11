@@ -1,8 +1,7 @@
 // ══════════════════════════════════════════════
 //  DASHBOARD — js/modules/dashboard.js
-//  UPDATED: Stat cards now show only user‑specific
-//  task counts (Active, Completed, Overdue) and
-//  global Pending Announcements.
+//  UPDATED: "My Active Tasks" card now shows full
+//  Kanban‑style deal cards (same as profile.js).
 // ══════════════════════════════════════════════
 
 function renderDashboard() {
@@ -33,7 +32,7 @@ function renderDashboard() {
     const pendingAnnouncements = tasks.filter(t => !t.done).length;
     const overdueAnnouncements = tasks.filter(t => !t.done && t.due < todayStr).length;
 
-    // ── Build stats grid (only 4 cards now) ──
+    // ── Build stats grid (4 cards) ──
     const stats = [
         { icon: '📋', val: myActiveTasks, label: 'My Active Tasks', color: 'var(--purple)' },
         { icon: '✓', val: myCompletedTasks, label: 'My Completed Tasks', color: 'var(--green)' },
@@ -51,6 +50,9 @@ function renderDashboard() {
 
     // ✅ Recent Activity (rendered by activity.js)
     renderActivityList();
+
+    // ── Render "My Active Tasks" card before Upcoming Announcements ──
+    renderDashboardMyTasks(myDeals.filter(d => !finalStageKeys.has(d.stage)));
 
     // ── Upcoming announcements (global) ──
     const upcoming = tasks.filter(t => !t.done).sort((a, b) => a.due > b.due ? 1 : -1).slice(0, 6);
@@ -72,3 +74,70 @@ function renderDashboard() {
         }).join('');
     }
 }
+
+// ── Render "My Active Tasks" card with full Kanban‑style cards ──
+
+function renderDashboardMyTasks(activeDeals) {
+    const grid = document.getElementById('dashboard-grid');
+    if (!grid) return;
+
+    // Find the upcoming card (the one that contains #upcoming-tasks)
+    const upcomingCard = grid.querySelector('#upcoming-tasks')?.closest('.card');
+    if (!upcomingCard) return;
+
+    // Check if the "My Active Tasks" card already exists
+    let myTasksCard = document.getElementById('my-active-tasks-card');
+    if (!myTasksCard) {
+        myTasksCard = document.createElement('div');
+        myTasksCard.id = 'my-active-tasks-card';
+        myTasksCard.className = 'card';
+        myTasksCard.style.gridColumn = '1 / -1'; // full width (if grid has 2 columns)
+        myTasksCard.innerHTML = `
+            <div class="card-header">
+                <span>My Active Tasks</span>
+                <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="my-active-tasks-count"></span>
+            </div>
+            <div class="card-body" id="my-active-tasks-body"></div>
+        `;
+        // Insert before the upcoming card
+        grid.insertBefore(myTasksCard, upcomingCard);
+    }
+
+    const countEl = document.getElementById('my-active-tasks-count');
+    const bodyEl = document.getElementById('my-active-tasks-body');
+
+    if (!bodyEl) return;
+
+    if (countEl) countEl.textContent = activeDeals.length;
+
+    if (!activeDeals.length) {
+        bodyEl.innerHTML = `<div class="empty-state" style="padding:30px 20px;"><span class="es-icon">📋</span><p>No active tasks assigned to you.</p></div>`;
+        return;
+    }
+
+    // ── Use the same card rendering as profile.js (if available) ──
+    let html;
+    if (typeof profileDealCardHTML === 'function') {
+        html = activeDeals.map(d => profileDealCardHTML(d)).join('');
+    } else {
+        // Fallback: simple card with title, due, priority (shouldn't happen if profile.js loaded)
+        html = activeDeals.map(d => `
+            <div class="deal-card" style="cursor:pointer;" onclick="openDealViewOnly('${d.id}')">
+                <div class="deal-card-title">${d.title}</div>
+                ${d.desc ? `<div class="deal-card-desc">${d.desc}</div>` : ''}
+                <div class="deal-card-meta">
+                    <span class="task-due">📅 ${fmtDate(d.due)}</span>
+                    ${priorityBadge(d.priority)}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    bodyEl.innerHTML = html;
+}
+
+// Expose globally
+window.renderDashboard = renderDashboard;
+window.renderDashboardMyTasks = renderDashboardMyTasks;
+
+console.log('✅ Dashboard module loaded (with full Kanban‑style My Active Tasks card)');
