@@ -1,3 +1,12 @@
+### **How it works Reload Button**
+
+- The button is disabled immediately after being clicked.
+- Its text changes to *⟳ Reloading…* to indicate progress.
+- The refresh operation runs asynchronously.
+- Once the `reloadAllData()` promise settles (success or failure), we wait **3.5 seconds** and then re‑enable the button, restoring its original label.
+- During the disabled period, further clicks are ignored (the `if (!btn || btn.disabled) return;` guard).
+
+This provides a smooth user experience, prevents abuse, and keeps the UI responsive.
 To remove the sidebar badge counters, we need to update only two files:
 
 index.php – remove the <span class="nav-badge"> elements from the sidebar navigation items.

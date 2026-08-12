@@ -134,23 +134,43 @@ function toast(msg, type) {
     setTimeout(() => { el.style.animation = 'toast-out 0.3s forwards';
         setTimeout(() => el.remove(), 300); }, 3000);
 }
-
 // ──────────────────────────────────────────────
-//  RELOAD DATA
+//  RELOAD DATA (with button debounce / hide)
 // ──────────────────────────────────────────────
 function reloadData() {
+    const btn = document.getElementById('reload-data-btn');
+    // If button doesn't exist or is already disabled, ignore the click
+    if (!btn || btn.disabled) return;
+
+    // Save original text and disable the button
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⟳ Reloading…';
+
+    // Re-enable after 1.5 seconds and restore text
+    const reenable = () => {
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }, 3500); // 3.5 seconds
+    };
+
+    // Optional: reset pending updates badge if function exists
     if (typeof window.resetPendingUpdates === 'function') {
         window.resetPendingUpdates();
     }
+
     toast('Refreshing data…', 'info');
     renderPage(currentPage);
     reloadAllData()
         .then(() => {
             if (currentPage) renderPage(currentPage);
             toast('Data refreshed.', 'success');
+            reenable();
         })
         .catch(() => {
             toast('Failed to refresh data.', 'error');
+            reenable();
         });
 }
 
