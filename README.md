@@ -1,3 +1,14 @@
+### **Key Changes: 1.2.1**
+
+1. **Replaced the search input** – Now uses `id="dashboard-task-search"` with an `oninput` handler that calls `filterDashboardTasks()`.
+2. **Added `filterDashboardTasks()`** – Reads the search query, filters `dashboardActiveDeals` (the list of current user's active tasks) by title or description, and re‑renders the task list.
+3. **Stored `dashboardActiveDeals`** – Set in `renderDashboard()` so the filter function always works on the latest data.
+4. **Removed the conflicting `kanban-search` ID** – The dashboard now has its own dedicated search, independent of the main Kanban board.
+5. **Preserved all existing functionality** – Pagination, scrolling, activity list, and announcements remain unchanged.
+
+The search now allows users to quickly filter their active tasks by typing any part of the task title or description.
+
+
 ### **How it works Reload Button**
 
 - The button is disabled immediately after being clicked.

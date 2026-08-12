@@ -3,11 +3,16 @@
 //  UPDATED:
 //  - Pagination moved to top of Recent Activity
 //  - Scroll bars added to activity and tasks cards
+//  - Search on "My Active Tasks" filters by task title (deal title)
+//  - Added spacing between header and task cards (padding-top: 10px)
 // ══════════════════════════════════════════════
 
 // ── Pagination state for dashboard activity ──
 let dashboardActivityPage = 1;
 const DASHBOARD_ACTIVITY_PER_PAGE = 10;
+
+// ── Store active deals for filtering ──
+let dashboardActiveDeals = [];
 
 function renderDashboard() {
     const finalStageKeys = new Set(stages.filter(s => s.final).map(s => s.key));
@@ -24,7 +29,10 @@ function renderDashboard() {
         });
     }
 
-    const myActiveTasks = myDeals.filter(d => !finalStageKeys.has(d.stage)).length;
+    const activeDeals = myDeals.filter(d => !finalStageKeys.has(d.stage));
+    dashboardActiveDeals = activeDeals;
+
+    const myActiveTasks = activeDeals.length;
     const myCompletedTasks = myDeals.filter(d => finalStageKeys.has(d.stage)).length;
     const myOverdueTasks = myDeals.filter(d =>
         !finalStageKeys.has(d.stage) && d.due && d.due < todayStr
@@ -48,7 +56,7 @@ function renderDashboard() {
     </div>
   `).join('');
 
-    rebuildDashboardGrid(myDeals.filter(d => !finalStageKeys.has(d.stage)));
+    rebuildDashboardGrid(activeDeals);
 }
 
 function rebuildDashboardGrid(activeDeals) {
@@ -81,15 +89,19 @@ function rebuildDashboardGrid(activeDeals) {
     `;
     grid.appendChild(activityCol);
 
-    // ── Column 2: My Active Tasks with scroll ──
+    // ── Column 2: My Active Tasks with search & scroll ──
     const tasksCol = document.createElement('div');
     tasksCol.className = 'card';
     tasksCol.innerHTML = `
-        <div class="card-header">
-            <span>My Active Tasks</span>
+        <div class="card-header" style="flex-wrap:wrap;gap:8px;">
+            <span style="font-weight:600;">My Active Tasks</span>
+            <div style="flex:1;min-width:150px;display:flex;align-items:center;gap:6px;">
+                <input type="text" id="dashboard-task-search" placeholder="Search by title..." 
+                       oninput="filterDashboardTasks()" style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.85rem;">
+            </div>
             <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="dashboard-my-tasks-count"></span>
         </div>
-        <div class="card-body" style="padding:0 16px 16px;max-height:400px;overflow-y:auto;">
+        <div class="card-body" style="padding:10px 16px 16px;max-height:400px;overflow-y:auto;">
             <div id="dashboard-my-tasks-body"></div>
         </div>
     `;
@@ -112,6 +124,23 @@ function rebuildDashboardGrid(activeDeals) {
     renderDashboardActivityList();
     renderDashboardMyTasksContent(activeDeals);
     renderDashboardUpcoming();
+}
+
+// ── Filter dashboard tasks by title ──
+function filterDashboardTasks() {
+    const searchInput = document.getElementById('dashboard-task-search');
+    const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    let filtered = dashboardActiveDeals;
+
+    if (query) {
+        filtered = dashboardActiveDeals.filter(d => {
+            const title = (d.title || '').toLowerCase();
+            const desc = (d.desc || '').toLowerCase();
+            return title.includes(query) || desc.includes(query);
+        });
+    }
+
+    renderDashboardMyTasksContent(filtered);
 }
 
 // ── Render dashboard activity list with top pagination ──
@@ -261,6 +290,6 @@ function renderDashboardUpcoming() {
 // Expose globally
 window.renderDashboard = renderDashboard;
 window.dashboardGoToActivityPage = dashboardGoToActivityPage;
-//window.renderDashboardMyTasks = renderDashboardMyTasks;
+window.filterDashboardTasks = filterDashboardTasks;
 
-console.log('✅ Dashboard module loaded (pagination top, scroll added)');
+console.log('✅ Dashboard module loaded (pagination top, scroll added, task search, spacing added)');
