@@ -14,7 +14,7 @@ $user = $_SESSION['user'];
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.5, user-scalable=yes" />
-    <title>Task Management System | TMS V1.0.7</title>
+    <title>Task Management System | TMS V1.0.8</title>
     <link rel="stylesheet" href="css/index.min.css" />
 </head>
 <body>
