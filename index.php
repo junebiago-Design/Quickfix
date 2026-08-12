@@ -36,72 +36,63 @@ $user = $_SESSION['user'];
                     <div class="logo-sub">Task Management</div>
                 </div>
             </div>
-<div class="sidebar-nav">
-    <div class="nav-section-label" style="margin-top:8px">Account</div>
-    <div class="nav-item" data-page="profile" onclick="navigate('profile')">
-        <span class="nav-icon">👤</span> My Profile
-    </div>
+            <div class="sidebar-nav">
+                <div class="nav-section-label" style="margin-top:8px">Account</div>
+                <div class="nav-item" data-page="profile" onclick="navigate('profile')">
+                    <span class="nav-icon">👤</span> My Profile
+                </div>
 
-    <div class="nav-section-label">Workspace</div>
-    <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
-        <span class="nav-icon">⊞</span> Dashboard
-    </div>
-    <div class="nav-item" data-page="deals" onclick="navigate('deals')">
-        <span class="nav-icon">📋</span> Task
-        <span class="nav-badge" id="badge-deals">0</span>
-    </div>
+                <div class="nav-section-label">Workspace</div>
+                <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+                    <span class="nav-icon">⊞</span> Dashboard
+                </div>
+                <div class="nav-item" data-page="deals" onclick="navigate('deals')">
+                    <span class="nav-icon">📋</span> Task
+                </div>
 
-    <div class="nav-section-label" style="margin-top:8px">Company Settings</div>
-    <div class="nav-item" data-page="contacts" onclick="navigate('contacts')">
-        <span class="nav-icon">👥</span> Add Employee
-        <span class="nav-badge" id="badge-contacts">0</span>
-    </div>
+                <div class="nav-section-label" style="margin-top:8px">Company Settings</div>
+                <div class="nav-item" data-page="contacts" onclick="navigate('contacts')">
+                    <span class="nav-icon">👥</span> Add Employee
+                </div>
 
-    <div class="nav-item" data-page="employee-directory" onclick="navigate('employee-directory')">
-    <span class="nav-icon">👤</span> Employee
-    </div>
+                <div class="nav-item" data-page="employee-directory" onclick="navigate('employee-directory')">
+                    <span class="nav-icon">👤</span> Employee
+                </div>
 
+                <div class="nav-item" data-page="departments" onclick="navigate('departments')">
+                    <span class="nav-icon">🏢</span> Departments
+                </div>
+                <div class="nav-item" data-page="companies" onclick="navigate('companies')">
+                    <span class="nav-icon">🏬</span> Companies
+                </div>
 
-    <div class="nav-item" data-page="departments" onclick="navigate('departments')">
-        <span class="nav-icon">🏢</span> Departments
-        <span class="nav-badge" id="badge-departments">0</span>
-    </div>
-    <div class="nav-item" data-page="companies" onclick="navigate('companies')">
-        <span class="nav-icon">🏬</span> Companies
-        <span class="nav-badge" id="badge-companies">0</span>
-    </div>
+                <div class="nav-section-label" style="margin-top:8px">System Settings</div>
+                <div class="nav-item" data-page="roles" onclick="navigate('roles')" id="nav-roles">
+                    <span class="nav-icon">🛡️</span> Roles
+                </div>
+                <div class="nav-item" data-page="users" onclick="navigate('users')" id="nav-users">
+                    <span class="nav-icon">🔑</span> Users
+                </div>
 
-    <div class="nav-section-label" style="margin-top:8px">System Settings</div>
-    <div class="nav-item" data-page="roles" onclick="navigate('roles')" id="nav-roles">
-        <span class="nav-icon">🛡️</span> Roles
-        <span class="nav-badge" id="badge-roles">0</span>
-    </div>
-    <div class="nav-item" data-page="users" onclick="navigate('users')" id="nav-users">
-        <span class="nav-icon">🔑</span> Users
-        <span class="nav-badge" id="badge-users">0</span>
-    </div>
+                <div class="nav-section-label" style="margin-top:8px">System Directory</div>
+                <div class="nav-item" data-page="tasks" onclick="navigate('tasks')">
+                    <span class="nav-icon">📢</span> Announcement
+                </div>
+                <div class="nav-item" data-page="notes" onclick="navigate('notes')">
+                    <span class="nav-icon">◫</span> Notes
+                </div>
+                <div class="nav-item" data-page="task-activity" onclick="navigate('task-activity')">
+                    <span class="nav-icon">🕓</span> Task Activity
+                </div>
 
-    <div class="nav-section-label" style="margin-top:8px">System Directory</div>
-    <div class="nav-item" data-page="tasks" onclick="navigate('tasks')">
-        <span class="nav-icon">📢</span> Announcement
-        <span class="nav-badge" id="badge-tasks">0</span>
-    </div>
-    <div class="nav-item" data-page="notes" onclick="navigate('notes')">
-        <span class="nav-icon">◫</span> Notes
-    </div>
-    <div class="nav-item" data-page="task-activity" onclick="navigate('task-activity')">
-        <span class="nav-icon">🕓</span> Task Activity
-    </div>
-
-    <div class="nav-section-label" style="margin-top:8px">Security & Monitoring</div>
-    <div class="nav-item" data-page="page-access" onclick="navigate('page-access')" id="nav-page-access">
-        <span class="nav-icon">🧭</span> Page Access
-    </div>
-    <div class="nav-item" data-page="login-monitoring" onclick="navigate('login-monitoring')" id="nav-login-monitoring">
-        <span class="nav-icon">🔐</span> Login Monitoring
-        <span class="nav-badge" id="badge-login-logs" style="background:#dc3545;">0</span>
-    </div>
-</div>
+                <div class="nav-section-label" style="margin-top:8px">Security & Monitoring</div>
+                <div class="nav-item" data-page="page-access" onclick="navigate('page-access')" id="nav-page-access">
+                    <span class="nav-icon">🧭</span> Page Access
+                </div>
+                <div class="nav-item" data-page="login-monitoring" onclick="navigate('login-monitoring')" id="nav-login-monitoring">
+                    <span class="nav-icon">🔐</span> Login Monitoring
+                </div>
+            </div>
 
             <div class="sidebar-footer">
                 <span id="sidebar-footer-email"><?= htmlspecialchars($user['email'] ?? '') ?></span>
@@ -133,189 +124,179 @@ $user = $_SESSION['user'];
                 </button>
             </div>
 
-          <!-- Dashboard -->
-<div class="page active" id="page-dashboard">
-    <div class="page-body">
-        <div class="stats-grid" id="stats-grid"></div>
-        <div class="dashboard-grid">
-            <div class="card">
-                <div class="card-header">
-                    <span>Recent Activity</span>
-                    <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="activity-count"></span>
-                </div>
-                   <!-- PAGINATION CONTROLS -->
-                    <div class="activity-pagination" id="activity-pagination" style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--border);margin-top:8px;flex-wrap:wrap;gap:8px;">
-                        <!-- Pagination will be rendered here -->
+            <!-- Dashboard -->
+            <div class="page active" id="page-dashboard">
+                <div class="page-body">
+                    <div class="stats-grid" id="stats-grid"></div>
+                    <div class="dashboard-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <span>Recent Activity</span>
+                                <span class="text-muted" style="font-size:0.75rem;font-weight:400;" id="activity-count"></span>
+                            </div>
+                            <div class="activity-pagination" id="activity-pagination" style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;border-top:1px solid var(--border);margin-top:8px;flex-wrap:wrap;gap:8px;">
+                                <!-- Pagination will be rendered here -->
+                            </div>
+                            <br>
+                            <div class="card-body">
+                                <ul class="activity-list" id="activity-list">
+                                    <li class="empty-state" style="padding:40px 20px;">
+                                        <span class="es-icon">◌</span>
+                                        <p>No activity yet. Start by adding employees or tasks.</p>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <span>Upcoming Announcements</span>
+                            </div>
+                            <div class="card-body" id="upcoming-tasks"></div>
+                        </div>
                     </div>
-</br>
-                <div class="card-body">
-                    
-                 
-                    <ul class="activity-list" id="activity-list">
-                        <li class="empty-state" style="padding:40px 20px;">
-                            <span class="es-icon">◌</span>
-                            <p>No activity yet. Start by adding employees or tasks.</p>
-                        </li>
-                    </ul>
                 </div>
             </div>
-            <div class="card">
-                <div class="card-header">
-                    <span>Upcoming Announcements</span>
-                </div>
-                <div class="card-body" id="upcoming-tasks"></div>
-            </div>
-        </div>
-    </div>
-</div>
 
             <!-- Employee Directory -->
-<div class="page" id="page-employee-directory">
-    <div class="page-body">
-        <div class="section-toolbar">
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;width:100%;">
-                <div class="toolbar" style="flex:1;flex-wrap:wrap;gap:8px;">
-                    <!-- Search -->
-                    <div class="search-wrap" style="min-width:150px;flex:1;">
-                        <span class="search-icon">🔍</span>
-                        <input type="text" id="ed-search" placeholder="Search employees..." oninput="filterEmployeeDirectory()">
+            <div class="page" id="page-employee-directory">
+                <div class="page-body">
+                    <div class="section-toolbar">
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;width:100%;">
+                            <div class="toolbar" style="flex:1;flex-wrap:wrap;gap:8px;">
+                                <div class="search-wrap" style="min-width:150px;flex:1;">
+                                    <span class="search-icon">🔍</span>
+                                    <input type="text" id="ed-search" placeholder="Search employees..." oninput="filterEmployeeDirectory()">
+                                </div>
+                                <select class="filter-select" id="ed-department-filter" onchange="filterEmployeeDirectory()">
+                                    <option value="">All Departments</option>
+                                </select>
+                                <select class="filter-select" id="ed-company-filter" onchange="filterEmployeeDirectory()">
+                                    <option value="">All Companies</option>
+                                </select>
+                                <select class="filter-select" id="ed-role-filter" onchange="filterEmployeeDirectory()">
+                                    <option value="">All Roles</option>
+                                </select>
+                                <select class="filter-select" id="ed-status-filter" onchange="filterEmployeeDirectory()">
+                                    <option value="">All Status</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">In-Active</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-ghost" onclick="resetEmployeeDirectoryFilters()">🔄 Reset Filters</button>
+                        </div>
                     </div>
-                    <!-- Department Filter -->
-                    <select class="filter-select" id="ed-department-filter" onchange="filterEmployeeDirectory()">
-                        <option value="">All Departments</option>
-                    </select>
-                    <!-- Company Filter -->
-                    <select class="filter-select" id="ed-company-filter" onchange="filterEmployeeDirectory()">
-                        <option value="">All Companies</option>
-                    </select>
-                    <!-- Role Filter -->
-                    <select class="filter-select" id="ed-role-filter" onchange="filterEmployeeDirectory()">
-                        <option value="">All Roles</option>
-                    </select>
-                    <!-- Status Filter -->
-                    <select class="filter-select" id="ed-status-filter" onchange="filterEmployeeDirectory()">
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">In-Active</option>
-                    </select>
-                </div>
-                <button class="btn btn-ghost" onclick="resetEmployeeDirectoryFilters()">🔄 Reset Filters</button>
-            </div>
-        </div>
 
-        <!-- Stats Cards -->
-        <div class="stats-grid" id="ed-stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon">👤</div>
-                <div class="stat-info">
-                    <h4>Total Employees</h4>
-                    <span class="stat-number" id="ed-total-count">0</span>
-                </div>
-            </div>
-            <div class="stat-card" style="--card-accent:var(--green);">
-                <div class="stat-icon">✅</div>
-                <div class="stat-info">
-                    <h4>Active</h4>
-                    <span class="stat-number" id="ed-active-count">0</span>
-                </div>
-            </div>
-            <div class="stat-card" style="--card-accent:var(--red);">
-                <div class="stat-icon">⛔</div>
-                <div class="stat-info">
-                    <h4>In-Active</h4>
-                    <span class="stat-number" id="ed-inactive-count">0</span>
-                </div>
-            </div>
-            <div class="stat-card" style="--card-accent:var(--accent);">
-                <div class="stat-icon">🟢</div>
-                <div class="stat-info">
-                    <h4>Online Now</h4>
-                    <span class="stat-number" id="ed-online-count">0</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Employee Table -->
-        <div class="card">
-            <div class="card-header" style="justify-content:space-between;">
-                <span>Employee Directory</span>
-                <span class="text-muted" style="font-size:0.75rem;" id="ed-count-label">0 employees</span>
-            </div>
-            <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Department</th>
-                            <th>Company</th>
-                            <th>Role</th>
-                            <th>Last Active</th>
-                            <th>Duration</th>
-                            <th>Last Login</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ed-tbody">
-                        <tr>
-                            <td colspan="8"><div class="empty-state"><span class="es-icon">👤</span><h3>No employees found</h3><p>Employees will appear here as they are added.</p></div></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
-
-
-    <!-- Contacts -->
-<div class="page" id="page-contacts">
-    <div class="page-body">
-        <div class="section-toolbar">
-            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; width:100%;">
-                <div class="toolbar" style="flex:1; flex-wrap:wrap; gap:8px;">
-                    <div class="search-wrap" style="min-width:150px; flex:1;">
-                        <span class="search-icon">🔍</span>
-                        <input type="text" id="contact-search" placeholder="Search employees…" oninput="renderContacts()">
+                    <div class="stats-grid" id="ed-stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">👤</div>
+                            <div class="stat-info">
+                                <h4>Total Employees</h4>
+                                <span class="stat-number" id="ed-total-count">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card" style="--card-accent:var(--green);">
+                            <div class="stat-icon">✅</div>
+                            <div class="stat-info">
+                                <h4>Active</h4>
+                                <span class="stat-number" id="ed-active-count">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card" style="--card-accent:var(--red);">
+                            <div class="stat-icon">⛔</div>
+                            <div class="stat-info">
+                                <h4>In-Active</h4>
+                                <span class="stat-number" id="ed-inactive-count">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-card" style="--card-accent:var(--accent);">
+                            <div class="stat-icon">🟢</div>
+                            <div class="stat-info">
+                                <h4>Online Now</h4>
+                                <span class="stat-number" id="ed-online-count">0</span>
+                            </div>
+                        </div>
                     </div>
-                    <select class="filter-select" id="contact-filter-status" onchange="renderContacts()">
-                        <option value="">All Statuses</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">In-Active</option>
-                    </select>
-                </div>
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span class="text-muted" style="font-size:0.75rem;" id="contact-count-label">0 employees</span>
-                    <button class="btn btn-primary" onclick="openContactModal()">+ Add Employee</button>
-                    <button class="btn btn-primary" onclick="exportContactsReport()">📊 Export Report</button>
+
+                    <div class="card">
+                        <div class="card-header" style="justify-content:space-between;">
+                            <span>Employee Directory</span>
+                            <span class="text-muted" style="font-size:0.75rem;" id="ed-count-label">0 employees</span>
+                        </div>
+                        <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Employee</th>
+                                        <th>Department</th>
+                                        <th>Company</th>
+                                        <th>Role</th>
+                                        <th>Last Active</th>
+                                        <th>Duration</th>
+                                        <th>Last Login</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ed-tbody">
+                                    <tr>
+                                        <td colspan="8"><div class="empty-state"><span class="es-icon">👤</span><h3>No employees found</h3><p>Employees will appear here as they are added.</p></div></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="card">
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Phone</th>
-                            <th>Company</th>
-                            <th>Department</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Added</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="contacts-tbody">
-                        <tr>
-                            <td colspan="9"><div class="empty-state"><span class="es-icon">👤</span><h3>No employees yet</h3><p>Click "Add Employee" to create your first one.</p></div></td>
-                        </tr>
-                    </tbody>
-                </table>
+
+            <!-- Contacts -->
+            <div class="page" id="page-contacts">
+                <div class="page-body">
+                    <div class="section-toolbar">
+                        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; width:100%;">
+                            <div class="toolbar" style="flex:1; flex-wrap:wrap; gap:8px;">
+                                <div class="search-wrap" style="min-width:150px; flex:1;">
+                                    <span class="search-icon">🔍</span>
+                                    <input type="text" id="contact-search" placeholder="Search employees…" oninput="renderContacts()">
+                                </div>
+                                <select class="filter-select" id="contact-filter-status" onchange="renderContacts()">
+                                    <option value="">All Statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">In-Active</option>
+                                </select>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span class="text-muted" style="font-size:0.75rem;" id="contact-count-label">0 employees</span>
+                                <button class="btn btn-primary" onclick="openContactModal()">+ Add Employee</button>
+                                <button class="btn btn-primary" onclick="exportContactsReport()">📊 Export Report</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Phone</th>
+                                        <th>Company</th>
+                                        <th>Department</th>
+                                        <th>Role</th>
+                                        <th>Status</th>
+                                        <th>Added</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="contacts-tbody">
+                                    <tr>
+                                        <td colspan="9"><div class="empty-state"><span class="es-icon">👤</span><h3>No employees yet</h3><p>Click "Add Employee" to create your first one.</p></div></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-    </div>
-</div>
+
             <!-- Deals (Kanban) -->
             <div class="page" id="page-deals">
                 <div class="page-body">
@@ -394,7 +375,7 @@ $user = $_SESSION['user'];
                     </div>
                 </div>
             </div>
-            
+
             <!-- Task Activity -->
             <div class="page" id="page-task-activity">
                 <div class="page-body">
@@ -719,32 +700,26 @@ $user = $_SESSION['user'];
                     <div class="section-toolbar">
                         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;width:100%;">
                             <div class="toolbar" style="flex:1;flex-wrap:wrap;gap:8px;">
-                                <!-- Search -->
                                 <div class="search-wrap" style="min-width:150px;flex:1;">
                                     <span class="search-icon">🔍</span>
                                     <input type="text" id="lm-search" placeholder="Search logs..." oninput="filterLoginLogs()">
                                 </div>
-                                <!-- Status Filter -->
                                 <select class="filter-select" id="lm-status-filter" onchange="filterLoginLogs()">
                                     <option value="">All Status</option>
                                     <option value="success">✅ Success</option>
                                     <option value="failed">❌ Failed</option>
                                 </select>
-                                <!-- Employee Filter -->
                                 <select class="filter-select" id="lm-employee-filter" onchange="filterLoginLogs()">
                                     <option value="">All Employees</option>
                                 </select>
-                                <!-- Department Filter -->
                                 <select class="filter-select" id="lm-department-filter" onchange="filterLoginLogs()">
                                     <option value="">All Departments</option>
                                 </select>
-                                <!-- Company Filter -->
                                 <select class="filter-select" id="lm-company-filter" onchange="filterLoginLogs()">
                                     <option value="">All Companies</option>
                                 </select>
                             </div>
                             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                <!-- Date Range -->
                                 <input type="date" id="lm-date-from" class="filter-select" style="width:auto;" onchange="filterLoginLogs()">
                                 <span style="color:var(--text3);align-self:center;">to</span>
                                 <input type="date" id="lm-date-to" class="filter-select" style="width:auto;" onchange="filterLoginLogs()">
@@ -754,7 +729,6 @@ $user = $_SESSION['user'];
                         </div>
                     </div>
 
-                    <!-- Stats Cards -->
                     <div class="stats-grid" id="lm-stats-grid">
                         <div class="stat-card">
                             <div class="stat-icon">📊</div>
@@ -793,9 +767,8 @@ $user = $_SESSION['user'];
                         </div>
                     </div>
                     <div id="lm-pagination" style="display:flex;left-content:space-between;align-items:center;padding:12px 16px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px;">
-    <!-- Pagination will be rendered here -->
-</div>
-                    <!-- Logs Table -->
+                        <!-- Pagination will be rendered here -->
+                    </div>
                     <div class="card">
                         <div class="card-header" style="justify-content:space-between;">
                             <span>Login Logs</span>
@@ -803,7 +776,6 @@ $user = $_SESSION['user'];
                         </div>
                         <div class="table-wrap" style="max-height:600px;overflow-y:auto;">
                             <table>
-                                
                                 <thead>
                                     <tr>
                                         <th>User</th>
@@ -823,11 +795,9 @@ $user = $_SESSION['user'];
                                 </tbody>
                             </table>
                         </div>
-                        
                     </div>
                 </div>
             </div>
-
         </div><!-- end #main -->
 
         <!-- ===== MODALS ===== -->
@@ -1431,7 +1401,7 @@ $user = $_SESSION['user'];
 
     </div><!-- end #app-shell -->
 
-    <!-- ===== SCRIPTS (order fixed: profile.js BEFORE dashboard.js) ===== -->
+    <!-- ===== SCRIPTS ===== -->
     <script src="js/core/api-client.js?v=live-20260731-02"></script>
     <script src="js/services/realtime.js"></script>
     <script src="js/services/roles.js"></script>
@@ -1446,7 +1416,6 @@ $user = $_SESSION['user'];
     <script src="js/modules/task-activity-writer.js"></script>
     <script src="js/modules/task-activity.js"></script>
     <script src="js/modules/seed.js"></script>
-    <!-- profile.js loaded BEFORE dashboard.js so profileDealCardHTML is defined -->
     <script src="js/modules/profile.js"></script>
     <script src="js/modules/dashboard.js"></script>
     <script src="js/modules/employee-directory.js"></script>

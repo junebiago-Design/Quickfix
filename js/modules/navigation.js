@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════
 //  NAVIGATION & SHELL UI — js/modules/navigation.js
 //  (pages, navigate, sidebar, modals, toast, reloadData)
-//  UPDATED: reloadData() resets pending updates badge.
+//  UPDATED: Badge counters removed (updateBadges is a no-op).
 // ══════════════════════════════════════════════
 
 // ══════════════════════════════════════════════
@@ -64,35 +64,13 @@ function renderPage(p) {
     else if (p === 'page-access') renderPageAccessMatrix();
     else if (p === 'profile') renderProfile();
     else if (p === 'login-monitoring') renderLoginMonitoring();
-    updateBadges();
+    // Badge updates removed – updateBadges() now does nothing.
 }
 
+// ── Badge counters (removed) ──
 function updateBadges() {
-    if (typeof reconcileTaskLifecycle === 'function') {
-        const changed = reconcileTaskLifecycle();
-        if (changed && typeof saveAll === 'function') saveAll();
-    }
-    document.getElementById('badge-contacts').textContent = contacts.length;
-    const finalStageKeys = new Set(stages.filter(s => s.final).map(s => s.key));
-    document.getElementById('badge-deals').textContent = deals.filter(d => !finalStageKeys.has(d.stage)).length;
-    const pending = tasks.filter(t => !t.done).length;
-    document.getElementById('badge-tasks').textContent = pending;
-    document.getElementById('badge-departments').textContent = departments.length;
-    document.getElementById('badge-companies').textContent = companies.length;
-    document.getElementById('badge-roles').textContent = roles.length;
-    document.getElementById('badge-users').textContent = users.length;
-    if (typeof getUserTaskCounts === 'function' && typeof getCurrentEmployeeId === 'function') {
-        const myEmployeeId = getCurrentEmployeeId();
-        const { completed: myCompleted, pending: myPending } = myEmployeeId ? getUserTaskCounts(myEmployeeId) : { completed: 0, pending: 0 };
-        [
-            ['badge-my-completed', myCompleted], ['badge-my-pending', myPending],
-            ['dash-my-completed', myCompleted], ['dash-my-pending', myPending],
-            ['profile-my-completed', myCompleted], ['profile-my-pending', myPending],
-        ].forEach(([id, value]) => {
-            const el = document.getElementById(id);
-            if (el) el.textContent = value;
-        });
-    }
+    // No longer updating sidebar badges.
+    // This function is kept as a no-op to avoid errors in other modules.
 }
 
 // ══════════════════════════════════════════════
@@ -158,7 +136,7 @@ function toast(msg, type) {
 }
 
 // ──────────────────────────────────────────────
-//  RELOAD DATA (UPDATED: resets badge)
+//  RELOAD DATA
 // ──────────────────────────────────────────────
 function reloadData() {
     if (typeof window.resetPendingUpdates === 'function') {

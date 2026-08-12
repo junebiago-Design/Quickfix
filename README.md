@@ -1,3 +1,9 @@
+To remove the sidebar badge counters, we need to update only two files:
+
+index.php – remove the <span class="nav-badge"> elements from the sidebar navigation items.
+
+js/modules/navigation.js – empty the updateBadges() function so it no longer tries to update those elements.
+
 ## 1.1.7
 
 folder structure
