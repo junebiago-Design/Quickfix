@@ -1,0 +1,127 @@
+/* ── My Active Tasks – Profile & Dashboard Cards ── */
+
+/* Target cards inside the profile task list and dashboard widget */
+#profile-tasks-list .deal-card,
+#dashboard-my-tasks-body .deal-card {
+    /* increase spacing between stacked cards */
+    margin-bottom: 18px;
+    /* remove extra horizontal padding that might shrink the buttons */
+    padding: 14px 16px;
+    /* softer border radius to match the new spacing */
+    border-radius: var(--radius, 10px);
+}
+
+/* The notes row – stack buttons vertically and stretch full width */
+#profile-tasks-list .deal-card .deal-card-notes-row,
+#dashboard-my-tasks-body .deal-card .deal-card-notes-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border, #2a3347);
+}
+
+/* Each toggle button – full width, consistent height */
+#profile-tasks-list .deal-card .deal-notes-toggle,
+#dashboard-my-tasks-body .deal-card .deal-notes-toggle {
+    width: 100%;
+    flex: 0 0 auto;
+    justify-content: center;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    background: var(--bg3, #1e2535);
+    border: 1px solid var(--border, #2a3347);
+    transition: background 0.2s, border-color 0.2s;
+}
+
+/* Hover effect for the buttons */
+#profile-tasks-list .deal-card .deal-notes-toggle:hover,
+#dashboard-my-tasks-body .deal-card .deal-notes-toggle:hover {
+    background: var(--bg2, #161b27);
+    border-color: var(--accent, #4f8ef7);
+}
+
+/* Specific styling for the Notes and Files buttons (keep their colours) */
+#profile-tasks-list .deal-card .deal-notes-toggle.comment-btn,
+#dashboard-my-tasks-body .deal-card .deal-notes-toggle.comment-btn {
+    border-color: rgba(62, 207, 142, 0.3);
+    color: var(--green, #3ecf8e);
+}
+#profile-tasks-list .deal-card .deal-notes-toggle.comment-btn:hover,
+#dashboard-my-tasks-body .deal-card .deal-notes-toggle.comment-btn:hover {
+    background: rgba(62, 207, 142, 0.1);
+}
+
+#profile-tasks-list .deal-card .deal-notes-toggle.files-btn,
+#dashboard-my-tasks-body .deal-card .deal-notes-toggle.files-btn {
+    border-color: rgba(79, 142, 247, 0.3);
+    color: var(--accent, #4f8ef7);
+}
+#profile-tasks-list .deal-card .deal-notes-toggle.files-btn:hover,
+#dashboard-my-tasks-body .deal-card .deal-notes-toggle.files-btn:hover {
+    background: rgba(79, 142, 247, 0.1);
+}
+
+/* Improve the spacing inside the card */
+#profile-tasks-list .deal-card .deal-card-title,
+#dashboard-my-tasks-body .deal-card .deal-card-title {
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+}
+
+#profile-tasks-list .deal-card .deal-card-desc,
+#dashboard-my-tasks-body .deal-card .deal-card-desc {
+    font-size: 0.8rem;
+    margin: 4px 0 8px;
+    color: var(--text3, #8b93a8);
+}
+
+#profile-tasks-list .deal-card .deal-card-assignees,
+#dashboard-my-tasks-body .deal-card .deal-card-assignees {
+    margin: 6px 0 4px;
+    gap: 4px;
+}
+
+#profile-tasks-list .deal-card .deal-card-meta,
+#dashboard-my-tasks-body .deal-card .deal-card-meta {
+    margin-top: 8px;
+    font-size: 0.8rem;
+}
+
+/* Badges inside the card */
+#profile-tasks-list .deal-card .badge,
+#dashboard-my-tasks-body .deal-card .badge {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+}
+
+/* Responsive fine‑tuning */
+@media (max-width: 768px) {
+    #profile-tasks-list .deal-card,
+    #dashboard-my-tasks-body .deal-card {
+        padding: 12px 14px;
+        margin-bottom: 14px;
+    }
+
+    #profile-tasks-list .deal-card .deal-notes-toggle,
+    #dashboard-my-tasks-body .deal-card .deal-notes-toggle {
+        padding: 10px 12px;
+        font-size: 0.75rem;
+    }
+}
+
+@media (max-width: 480px) {
+    #profile-tasks-list .deal-card,
+    #dashboard-my-tasks-body .deal-card {
+        padding: 10px 12px;
+        margin-bottom: 12px;
+    }
+
+    #profile-tasks-list .deal-card .deal-card-title,
+    #dashboard-my-tasks-body .deal-card .deal-card-title {
+        font-size: 0.85rem;
+    }
+}
