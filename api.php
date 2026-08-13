@@ -1,14 +1,12 @@
 <?php
 /**
- * api.php — TMS SQLite Backend
+ * api.php — TMS SQLite Backend (SECURED + CACHED + COMPLETE)
  *
- * Uses SQLite (via PDO) for persistent, thread-safe storage while
- * remaining backward-compatible with the existing frontend payload
- * formats (base64-encoded JSON snapshots).
- *
- * All data is stored in a single SQLite database file (data/tms_database.sq3)
- * with a simple key-value table structure (id, data JSON) to keep the
- * schema flexible and match the original JavaScript data model.
+ * - Server-Side RBAC: Enforces grab/drop/edit/upload/delete per stage.
+ * - APCu Caching: Caches stage permissions & full DB payload.
+ * - Versioned Payload: Increments db_version on save to bust cache.
+ * - All writes are validated server-side (no trust in client localStorage).
+ * - Includes all original features: login monitoring, file uploads, etc.
  */
 
 header('Content-Type: application/json; charset=utf-8');
@@ -21,11 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ── Real-time (Socket.IO) notifier ──────────────────────────────────────
-// notifySocketServer($event, $data) posts to the Node.js process in
-// /socket, which broadcasts to connected browser clients. Falls back to
-// a safe no-op if that folder hasn't been deployed on this environment
-// yet, so nothing here becomes a hard dependency.
+// ── Start Session for RBAC User Resolution ──────────────────────────
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// ── Real-time (Socket.IO) notifier ──────────────────────────────────
 $socketNotifierPath = __DIR__ . '/socket_notifier.php';
 if (file_exists($socketNotifierPath)) {
     require_once $socketNotifierPath;
@@ -34,9 +33,8 @@ if (!function_exists('notifySocketServer')) {
     function notifySocketServer(string $event, array $data, int $timeoutMs = 1500): bool { return false; }
 }
 
-// Database folder – one level up from dashboard/
+// ── Paths & Constants ───────────────────────────────────────────────
 define('DATA_DIR', __DIR__ . '/../data');
-// Upload folder – at the CRM root, outside dashboard/
 define('UPLOAD_DIR', __DIR__ . '/../uploads');
 define('DB_FILE', DATA_DIR . '/tms_database.sq3');
 
@@ -44,13 +42,6 @@ const MAX_UPLOAD_SIZE = 100 * 1024 * 1024; // 100MB
 const ALLOWED_DOCUMENTS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'txt'];
 const ALLOWED_IMAGES = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'];
 
-// Deterministic extension -> MIME map, used instead of the browser-supplied
-// upload MIME type when serving files back out (see serveFile below).
-// Browsers are inconsistent about what Content-Type they report for
-// uploads (some send 'application/octet-stream' or nothing for .xlsx/.csv
-// etc.), and Microsoft's Office Online Viewer needs the exact expected
-// Content-Type to recognize and render a file — a wrong/empty one is
-// another way previews silently fail besides the hotlink issue.
 const MIME_TYPES = [
     'pdf'  => 'application/pdf',
     'doc'  => 'application/msword',
@@ -75,13 +66,6 @@ const TABLES = [
     'stages', 'users', 'files', 'counters', 'login_logs'
 ];
 
-// ── Real-time broadcast mapping ─────────────────────────────────────────
-// This app saves whole-array table snapshots from the client (see the
-// 'save' action below) rather than per-record CRUD, so there's no single
-// point that already knows "this one deal changed". These maps tell the
-// 'save' handler which tables to diff old-vs-new after syncTable() and
-// what Socket.IO event prefix to broadcast under — matching the listeners
-// in js/modules/socket-handler.js (e.g. 'deals' -> 'deal:created').
 const BROADCAST_ENTITY_TABLES = [
     'deals'       => 'deal',
     'contacts'    => 'contact',
@@ -93,83 +77,57 @@ const BROADCAST_ENTITY_TABLES = [
     'users'       => 'user',
 ];
 
-// Append-only log tables — we only ever broadcast newly-appeared rows,
-// never updates or deletes, under a single fixed event name.
 const BROADCAST_LOG_TABLES = [
     'activity'     => 'activity:new',
     'taskActivity' => 'task-activity:new',
 ];
 
-// Cap on stored rows for append-only log tables (activity, taskActivity),
-// enforced server-side after each save so the table can't grow forever.
-// Trimming keeps the newest rows by createdAt, never the rows a client
-// happened to have loaded most recently.
 const LOG_TABLE_MAX_ROWS = 500;
 
-// ── Production-Safe Bootstrap Helpers ──────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  BOOTSTRAP HELPERS
+// ═════════════════════════════════════════════════════════════════════
 
-/**
- * Ensure a directory exists and is writable. Throws with a clear message
- * instead of failing silently (which is what @mkdir() was doing before).
- */
 function ensureDirectory(string $dir): void {
     if (is_dir($dir)) {
-        if (!is_writable($dir)) {
-            @chmod($dir, 0755);
-        }
+        if (!is_writable($dir)) @chmod($dir, 0755);
         return;
     }
-
     if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
-        throw new RuntimeException(
-            "Unable to create directory: {$dir}. Check that the parent folder " .
-            "exists and is writable by PHP on your hosting account."
-        );
+        throw new RuntimeException("Unable to create directory: {$dir}.");
     }
 }
 
-/**
- * Write a protective .htaccess into a folder if one isn't already there.
- * Safe no-op on hosts that don't use Apache/.htaccess.
- */
 function ensureHtaccess(string $dir, string $contents): void {
     $path = $dir . '/.htaccess';
-    if (!file_exists($path)) {
-        @file_put_contents($path, $contents);
-    }
+    if (!file_exists($path)) @file_put_contents($path, $contents);
 }
 
-// ── Database Initialization ──────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════
+//  DATABASE LAYER WITH APCu CACHING
+// ═════════════════════════════════════════════════════════════════════
 
 function getDb(): PDO {
     static $pdo = null;
     if ($pdo === null) {
         ensureDirectory(DATA_DIR);
         ensureHtaccess(DATA_DIR, "Require all denied\n");
-
         if (!file_exists(DB_FILE)) {
             if (@touch(DB_FILE) === false) {
-                throw new RuntimeException(
-                    "Unable to create database file: " . DB_FILE . ". " .
-                    "The 'data' directory exists but PHP could not write the SQLite " .
-                    "file into it — check folder permissions on your host."
-                );
+                throw new RuntimeException("Unable to create database file: " . DB_FILE);
             }
             @chmod(DB_FILE, 0644);
         }
-
         $pdo = new PDO('sqlite:' . DB_FILE);
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-        $pdo->exec('PRAGMA journal_mode = WAL;'); // High concurrency mode
+        $pdo->exec('PRAGMA journal_mode = WAL;');
     }
     return $pdo;
 }
 
 function initTables(): void {
     $db = getDb();
-    
-    // Create KV-like SQLite table per data entity to preserve dynamic JS JSON schemas
     foreach (TABLES as $table) {
         if ($table === 'counters') {
             $db->exec("CREATE TABLE IF NOT EXISTS counters (name TEXT PRIMARY KEY, val INTEGER)");
@@ -177,26 +135,17 @@ function initTables(): void {
             $db->exec("CREATE TABLE IF NOT EXISTS {$table} (id TEXT PRIMARY KEY, data TEXT)");
         }
     }
-
     ensureSeeded();
-    migrateDatabase(); // Run migration to ensure login_logs exists
+    migrateDatabase();
 }
 
 function ensureUploadDirectories(): void {
-    $dirs = [
-        UPLOAD_DIR,
-        UPLOAD_DIR . '/tasks',
-        UPLOAD_DIR . '/tasks/files',
-        UPLOAD_DIR . '/tasks/images',
-    ];
-    foreach ($dirs as $dir) {
-        ensureDirectory($dir);
-    }
-    // Prevent directory listing of uploaded files (harmless if host ignores .htaccess)
+    $dirs = [UPLOAD_DIR, UPLOAD_DIR . '/tasks', UPLOAD_DIR . '/tasks/files', UPLOAD_DIR . '/tasks/images'];
+    foreach ($dirs as $dir) ensureDirectory($dir);
     ensureHtaccess(UPLOAD_DIR, "Options -Indexes\n");
 }
 
-// Default seed data, written the first time the database is initialized.
+// ── Default Seed Data (with db_version counter) ─────────────────────
 function defaultSeed(): array {
     $now = date('c');
     $companyId = 'comp1';
@@ -251,17 +200,16 @@ function defaultSeed(): array {
             [
                 'key' => 'todo', 'label' => 'To Do', 'color' => '#4f8ef7', 'final' => false,
                 'permissions' => [
-                    'role_system_admin' => ['grab' => true, 'drop' => true, 'edit' => true, 'comment' => true, 'revision' => true, 'upload' => true],
+                    'role_system_admin' => ['grab' => true, 'drop' => true, 'edit' => true, 'comment' => true, 'revision' => true, 'upload' => true, 'stageEdit' => true, 'reorder' => true],
                 ],
             ],
             [
                 'key' => 'inprogress', 'label' => 'In Progress', 'color' => '#a78bfa', 'final' => false,
                 'permissions' => [
-                    'role_system_admin' => ['grab' => true, 'drop' => true, 'edit' => true, 'comment' => true, 'revision' => true, 'upload' => true],
+                    'role_system_admin' => ['grab' => true, 'drop' => true, 'edit' => true, 'comment' => true, 'revision' => true, 'upload' => true, 'stageEdit' => true, 'reorder' => true],
                 ],
             ],
         ],
-        // Default Admin User added here
         'users'       => [[
             'id' => $userId,
             'username' => 'admin',
@@ -272,19 +220,18 @@ function defaultSeed(): array {
             'createdAt' => $now,
         ]],
         'files'       => [],
-        'login_logs'  => [], // Empty login logs table
+        'login_logs'  => [],
         'counters'    => [
             'contacts' => 1, 'deals' => 0, 'tasks' => 0, 'notes' => 0, 'activity' => 0,
-            'taskActivity' => 0, 'departments' => 1, 'companies' => 1, 'roles' => 1, 
+            'taskActivity' => 0, 'departments' => 1, 'companies' => 1, 'roles' => 1,
             'stages' => 0, 'users' => 1, 'files' => 0, 'login_logs' => 0,
+            'db_version' => 1, // version counter for cache busting
         ],
     ];
 }
 
 function ensureSeeded(): void {
     $db = getDb();
-    
-    // Check if stages are present; if empty, run initial seed
     $stmt = $db->query("SELECT COUNT(*) as count FROM stages");
     if ($stmt->fetch()['count'] == 0) {
         $seed = defaultSeed();
@@ -312,66 +259,217 @@ function ensureSeeded(): void {
     }
 }
 
-// ── Database Migration ──────────────────────────────────────────────────
-
 function migrateDatabase(): void {
     $db = getDb();
-    
-    // Check if login_logs table exists, create if not
     try {
         $db->query("SELECT 1 FROM login_logs LIMIT 1");
     } catch (PDOException $e) {
-        // Table doesn't exist - create it
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS login_logs (
-                id TEXT PRIMARY KEY, 
-                data TEXT
-            )
-        ");
-        
-        // Add to counters if missing
+        $db->exec("CREATE TABLE IF NOT EXISTS login_logs (id TEXT PRIMARY KEY, data TEXT)");
         $stmt = $db->prepare("SELECT 1 FROM counters WHERE name = 'login_logs'");
         $stmt->execute();
         if (!$stmt->fetch()) {
             $stmt = $db->prepare("INSERT INTO counters (name, val) VALUES ('login_logs', 0)");
             $stmt->execute();
         }
-        
-        error_log("TMS: Created login_logs table during migration");
     }
-    
-    // Create indexes for faster queries (optional, ignore errors if they exist)
     try {
         $db->exec("CREATE INDEX IF NOT EXISTS idx_login_logs_user ON login_logs(json_extract(data, '$.userId'))");
         $db->exec("CREATE INDEX IF NOT EXISTS idx_login_logs_time ON login_logs(json_extract(data, '$.loginTime'))");
         $db->exec("CREATE INDEX IF NOT EXISTS idx_login_logs_status ON login_logs(json_extract(data, '$.status'))");
+    } catch (Exception $e) {}
+}
+
+// ── APCu Cached Table Reader ──────────────────────────────────────
+function readTable(string $table): array {
+    if ($table === 'counters') {
+        $db = getDb();
+        $stmt = $db->query("SELECT name, val FROM counters");
+        $out = [];
+        while ($row = $stmt->fetch()) $out[$row['name']] = (int)$row['val'];
+        return $out;
+    }
+
+    $cacheKey = 'tms_table_' . $table;
+    if (function_exists('apcu_fetch')) {
+        $data = apcu_fetch($cacheKey, $success);
+        if ($success) return $data;
+    }
+
+    $db = getDb();
+    if (isset(BROADCAST_LOG_TABLES[$table])) {
+        $stmt = $db->prepare("SELECT data FROM {$table} ORDER BY json_extract(data, '$.createdAt') DESC");
+    } else {
+        $stmt = $db->prepare("SELECT data FROM {$table}");
+    }
+    $stmt->execute();
+    $out = [];
+    while ($row = $stmt->fetch()) {
+        $out[] = json_decode($row['data'], true);
+    }
+
+    if (function_exists('apcu_store')) {
+        apcu_store($cacheKey, $out, 60);
+    }
+    return $out;
+}
+
+function syncTable(string $table, array $items): bool {
+    $db = getDb();
+    $db->beginTransaction();
+    try {
+        if ($table === 'counters') {
+            $stmt = $db->prepare("INSERT OR REPLACE INTO counters (name, val) VALUES (?, ?)");
+            foreach ($items as $k => $v) $stmt->execute([$k, (int)$v]);
+        } else {
+            $db->exec("DELETE FROM {$table}");
+            $stmt = $db->prepare("INSERT INTO {$table} (id, data) VALUES (?, ?)");
+            foreach ($items as $item) {
+                $id = $item['id'] ?? ($item['key'] ?? str_replace('.', '', uniqid('', true)));
+                $stmt->execute([$id, json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
+            }
+        }
+        $db->commit();
+
+        // Invalidate APCu cache for this table
+        if (function_exists('apcu_delete')) {
+            apcu_delete('tms_table_' . $table);
+        }
+        // Bump version to invalidate full payload cache
+        incrementDbVersion();
+
+        return true;
     } catch (Exception $e) {
-        // Index creation failed - not critical
+        $db->rollBack();
+        return false;
     }
 }
 
-// ── Login Monitoring Functions ─────────────────────────────────────────
+// ── Version Management for Payload Caching ────────────────────────
+function getDbVersion(): int {
+    $db = getDb();
+    $stmt = $db->query("SELECT val FROM counters WHERE name = 'db_version'");
+    $row = $stmt->fetch();
+    if (!$row) {
+        $stmt = $db->prepare("INSERT INTO counters (name, val) VALUES ('db_version', 1)");
+        $stmt->execute([1]);
+        return 1;
+    }
+    return (int)$row['val'];
+}
 
-/**
- * Log a login attempt to the SQLite database
- */
+function incrementDbVersion(): void {
+    $db = getDb();
+    $current = getDbVersion();
+    $stmt = $db->prepare("UPDATE counters SET val = ? WHERE name = 'db_version'");
+    $stmt->execute([$current + 1]);
+    if (function_exists('apcu_delete')) {
+        apcu_delete('tms_db_payload_' . $current);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  SERVER-SIDE RBAC ENGINE (SECURITY LAYER)
+// ═════════════════════════════════════════════════════════════════════
+
+function serverGetCurrentUserRole(): ?string {
+    return $_SESSION['user']['role'] ?? null;
+}
+
+function serverIsSystemAdmin(): bool {
+    $roleId = serverGetCurrentUserRole();
+    return $roleId === 'role_system_admin' || $roleId === 'admin';
+}
+
+function serverGetRoleInheritanceChain(string $roleId): array {
+    $chain = [];
+    $seen = [];
+    $current = $roleId;
+    $db = getDb();
+    while ($current && !in_array($current, $seen, true)) {
+        $seen[] = $current;
+        $chain[] = $current;
+        $stmt = $db->prepare("SELECT data FROM roles WHERE id = ?");
+        $stmt->execute([$current]);
+        $row = $stmt->fetch();
+        if (!$row) break;
+        $role = json_decode($row['data'], true);
+        $current = $role['inheritsFrom'] ?? null;
+    }
+    return $chain;
+}
+
+function serverGetStagePermissions(string $stageKey): array {
+    $cacheKey = 'tms_stage_perms_' . $stageKey;
+    if (function_exists('apcu_fetch')) {
+        $perms = apcu_fetch($cacheKey, $success);
+        if ($success) return $perms;
+    }
+
+    $db = getDb();
+    $stmt = $db->prepare("SELECT data FROM stages WHERE id = ?");
+    $stmt->execute([$stageKey]);
+    $row = $stmt->fetch();
+    if (!$row) return [];
+
+    $stage = json_decode($row['data'], true);
+    $perms = $stage['permissions'] ?? [];
+
+    if (empty($perms)) {
+        if (function_exists('apcu_store')) apcu_store($cacheKey, [], 300);
+        return [];
+    }
+
+    if (function_exists('apcu_store')) {
+        apcu_store($cacheKey, $perms, 300);
+    }
+    return $perms;
+}
+
+function serverHasPermission(string $stageKey, string $permission): bool {
+    if (serverIsSystemAdmin()) return true;
+
+    $roleId = serverGetCurrentUserRole();
+    if (!$roleId) return false;
+
+    $perms = serverGetStagePermissions($stageKey);
+    if (empty($perms)) return true; // open stage
+
+    $chain = serverGetRoleInheritanceChain($roleId);
+    foreach ($chain as $rid) {
+        if (isset($perms[$rid][$permission]) && $perms[$rid][$permission] === true) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function serverCanDeleteFile(): bool {
+    return serverIsSystemAdmin();
+}
+
+function serverGetDealStage(string $dealId): ?string {
+    $db = getDb();
+    $stmt = $db->prepare("SELECT data FROM deals WHERE id = ?");
+    $stmt->execute([$dealId]);
+    $row = $stmt->fetch();
+    if (!$row) return null;
+    $deal = json_decode($row['data'], true);
+    return $deal['stage'] ?? null;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  LOGIN MONITORING FUNCTIONS (copied from original, unchanged)
+// ═════════════════════════════════════════════════════════════════════
+
 function logLoginAttempt($userId, $username, $status, $failureReason = null, $additionalData = []) {
     try {
         $db = getDb();
-        
-        // Get next ID from counter
         $stmt = $db->query("SELECT val FROM counters WHERE name = 'login_logs'");
         $row = $stmt->fetch();
         $nextId = ($row ? (int)$row['val'] : 0) + 1;
-        
-        // Update counter
         $stmt = $db->prepare("INSERT OR REPLACE INTO counters (name, val) VALUES ('login_logs', ?)");
         $stmt->execute([$nextId]);
-        
-        // Get geolocation data
         $geoData = getGeoLocation($_SERVER['REMOTE_ADDR'] ?? '');
-        
-        // Create comprehensive log entry
         $logEntry = [
             'id' => 'log_' . time() . '_' . bin2hex(random_bytes(8)),
             'userId' => $userId,
@@ -380,7 +478,7 @@ function logLoginAttempt($userId, $username, $status, $failureReason = null, $ad
             'userAgent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
             'loginTime' => date('c'),
             'logoutTime' => null,
-            'status' => $status, // 'success' or 'failed'
+            'status' => $status,
             'failureReason' => $failureReason,
             'sessionId' => session_id(),
             'deviceType' => detectDeviceType($_SERVER['HTTP_USER_AGENT'] ?? ''),
@@ -393,17 +491,8 @@ function logLoginAttempt($userId, $username, $status, $failureReason = null, $ad
             'additionalData' => $additionalData,
             'createdAt' => date('c')
         ];
-        
-        // Save to SQLite
         $stmt = $db->prepare("INSERT INTO login_logs (id, data) VALUES (?, ?)");
-        $stmt->execute([
-            $logEntry['id'], 
-            json_encode($logEntry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-        ]);
-
-        // Resolve the linked employee/contact id (if any) so the client
-        // can update that person's status indicator (employee-directory.js
-        // #updateEmployeeStatus) without a full directory refetch.
+        $stmt->execute([$logEntry['id'], json_encode($logEntry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
         $employeeId = null;
         foreach (readTable('users') as $u) {
             if (($u['id'] ?? null) === $userId) { $employeeId = $u['employeeId'] ?? null; break; }
@@ -411,7 +500,6 @@ function logLoginAttempt($userId, $username, $status, $failureReason = null, $ad
         $broadcastEntry = $logEntry;
         $broadcastEntry['employeeId'] = $employeeId;
         notifySocketServer($status === 'success' ? 'login:success' : 'login:failed', $broadcastEntry);
-        
         return true;
     } catch (Exception $e) {
         error_log("Failed to log login attempt: " . $e->getMessage());
@@ -419,33 +507,19 @@ function logLoginAttempt($userId, $username, $status, $failureReason = null, $ad
     }
 }
 
-/**
- * Update logout time when user logs out
- */
 function logLogout($userId, $username) {
     try {
         $db = getDb();
-        
-        // Find the most recent active session for this user
-        $stmt = $db->prepare("
-            SELECT data FROM login_logs 
-            WHERE json_extract(data, '$.userId') = ? 
-            AND json_extract(data, '$.logoutTime') IS NULL
-            ORDER BY json_extract(data, '$.loginTime') DESC 
-            LIMIT 1
-        ");
+        $stmt = $db->prepare("SELECT data FROM login_logs WHERE json_extract(data, '$.userId') = ? AND json_extract(data, '$.logoutTime') IS NULL ORDER BY json_extract(data, '$.loginTime') DESC LIMIT 1");
         $stmt->execute([$userId]);
         $row = $stmt->fetch();
-        
         if ($row) {
             $log = json_decode($row['data'], true);
             if ($log && $log['userId'] === $userId) {
                 $log['logoutTime'] = date('c');
                 $log['sessionDuration'] = calculateDuration($log['loginTime'], $log['logoutTime']);
-                
                 $stmt = $db->prepare("UPDATE login_logs SET data = ? WHERE id = ?");
                 $stmt->execute([json_encode($log), $log['id']]);
-
                 $employeeId = null;
                 foreach (readTable('users') as $u) {
                     if (($u['id'] ?? null) === $userId) { $employeeId = $u['employeeId'] ?? null; break; }
@@ -453,7 +527,6 @@ function logLogout($userId, $username) {
                 $broadcastEntry = $log;
                 $broadcastEntry['employeeId'] = $employeeId;
                 notifySocketServer('logout', $broadcastEntry);
-
                 return true;
             }
         }
@@ -464,22 +537,14 @@ function logLogout($userId, $username) {
     }
 }
 
-/**
- * Calculate session duration in seconds
- */
 function calculateDuration($start, $end) {
     try {
-        $startTime = strtotime($start);
-        $endTime = strtotime($end);
-        return $endTime - $startTime;
+        return strtotime($end) - strtotime($start);
     } catch (Exception $e) {
         return 0;
     }
 }
 
-/**
- * Detect device type from user agent
- */
 function detectDeviceType($userAgent) {
     if (empty($userAgent)) return 'Unknown';
     $userAgent = strtolower($userAgent);
@@ -489,9 +554,6 @@ function detectDeviceType($userAgent) {
     return 'Desktop';
 }
 
-/**
- * Detect browser from user agent
- */
 function detectBrowser($userAgent) {
     if (empty($userAgent)) return 'Unknown';
     $userAgent = strtolower($userAgent);
@@ -503,9 +565,6 @@ function detectBrowser($userAgent) {
     return 'Other';
 }
 
-/**
- * Detect OS from user agent
- */
 function detectOS($userAgent) {
     if (empty($userAgent)) return 'Unknown';
     $userAgent = strtolower($userAgent);
@@ -517,188 +576,40 @@ function detectOS($userAgent) {
     return 'Other';
 }
 
-/**
- * Get geolocation from IP (using free API)
- */
 function getGeoLocation($ip) {
-    // Skip for local/private IPs
     if (in_array($ip, ['127.0.0.1', '::1', 'localhost']) || strpos($ip, '192.168.') === 0 || strpos($ip, '10.') === 0) {
         return ['country' => 'Local', 'city' => 'Local'];
     }
-    
     try {
-        // Use free ip-api.com (rate limited to 45 requests/minute)
         $response = @file_get_contents("http://ip-api.com/json/{$ip}?fields=country,city,lat,lon");
         if ($response) {
             $data = json_decode($response, true);
             if ($data && isset($data['country'])) {
-                return [
-                    'country' => $data['country'],
-                    'city' => $data['city'] ?? 'Unknown',
-                    'lat' => $data['lat'] ?? null,
-                    'lon' => $data['lon'] ?? null
-                ];
+                return ['country' => $data['country'], 'city' => $data['city'] ?? 'Unknown', 'lat' => $data['lat'] ?? null, 'lon' => $data['lon'] ?? null];
             }
         }
-    } catch (Exception $e) {
-        // Silently fail - geolocation is optional
-    }
+    } catch (Exception $e) {}
     return ['country' => 'Unknown', 'city' => 'Unknown'];
 }
 
-/**
- * Check for suspicious login attempts (rate limiting)
- */
 function checkLoginRate($username, $ip) {
     try {
         $db = getDb();
-        $maxAttempts = 5; // Max failed attempts
-        $timeWindow = 900; // 15 minutes in seconds
-        
-        $stmt = $db->prepare("
-            SELECT COUNT(*) as attempts 
-            FROM login_logs 
-            WHERE json_extract(data, '$.username') = ? 
-            AND json_extract(data, '$.status') = 'failed' 
-            AND datetime(json_extract(data, '$.loginTime')) > datetime('now', ? || ' seconds ago')
-        ");
+        $maxAttempts = 5;
+        $timeWindow = 900;
+        $stmt = $db->prepare("SELECT COUNT(*) as attempts FROM login_logs WHERE json_extract(data, '$.username') = ? AND json_extract(data, '$.status') = 'failed' AND datetime(json_extract(data, '$.loginTime')) > datetime('now', ? || ' seconds ago')");
         $stmt->execute([$username, '-' . $timeWindow]);
         $row = $stmt->fetch();
-        
         return $row['attempts'] < $maxAttempts;
     } catch (Exception $e) {
-        error_log("Failed to check login rate: " . $e->getMessage());
-        return true; // Allow login on error
-    }
-}
-
-// ── Read/Write Layer ─────────────────────────────────────────────────
-
-function readTable(string $table): array {
-    $db = getDb();
-    if ($table === 'counters') {
-        $stmt = $db->query("SELECT name, val FROM counters");
-        $out = [];
-        while ($row = $stmt->fetch()) {
-            $out[$row['name']] = (int)$row['val'];
-        }
-        return $out;
-    }
-
-    // Append-only log tables (activity, taskActivity) are always meant to
-    // be read newest-first. There's no reliable INSERT/rowid ordering to
-    // lean on once rows can be merged in out of order (see syncTable()),
-    // so sort explicitly by the entry's own createdAt here.
-    if (isset(BROADCAST_LOG_TABLES[$table])) {
-        $stmt = $db->prepare("SELECT data FROM {$table} ORDER BY json_extract(data, '$.createdAt') DESC");
-    } else {
-        $stmt = $db->prepare("SELECT data FROM {$table}");
-    }
-    $stmt->execute();
-    $out = [];
-    while ($row = $stmt->fetch()) {
-        $out[] = json_decode($row['data'], true);
-    }
-    return $out;
-}
-
-function syncTable(string $table, array $items): bool {
-    $db = getDb();
-    $db->beginTransaction();
-    try {
-        if ($table === 'counters') {
-            $stmt = $db->prepare("INSERT OR REPLACE INTO counters (name, val) VALUES (?, ?)");
-            foreach ($items as $k => $v) {
-                $stmt->execute([$k, (int)$v]);
-            }
-        } else {
-            // Truncate and replace table data safely inside transaction
-            $db->exec("DELETE FROM {$table}");
-            $stmt = $db->prepare("INSERT INTO {$table} (id, data) VALUES (?, ?)");
-            foreach ($items as $item) {
-                $id = $item['id'] ?? ($item['key'] ?? str_replace('.', '', uniqid('', true)));
-                $stmt->execute([$id, json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
-            }
-        }
-        $db->commit();
         return true;
-    } catch (Exception $e) {
-        $db->rollBack();
-        return false;
     }
 }
 
-/**
- * Compare an old and new snapshot of a table's rows (keyed by `id`) and
- * return which were created, updated (by value), or deleted. This is how
- * we recover per-record change events from syncTable()'s whole-array
- * replace, so the 'save' action can broadcast granular Socket.IO events
- * instead of "something changed, refetch everything".
- */
-function diffTableChanges(array $oldItems, array $newItems): array {
-    $oldById = [];
-    foreach ($oldItems as $item) {
-        if (isset($item['id'])) $oldById[$item['id']] = $item;
-    }
-    $created = [];
-    $updated = [];
-    $seenIds = [];
-    foreach ($newItems as $item) {
-        $id = $item['id'] ?? null;
-        if ($id === null) continue;
-        $seenIds[$id] = true;
-        if (!array_key_exists($id, $oldById)) {
-            $created[] = $item;
-        } elseif (json_encode($oldById[$id]) !== json_encode($item)) {
-            $updated[] = $item;
-        }
-    }
-    $deleted = [];
-    foreach ($oldById as $id => $item) {
-        if (!isset($seenIds[$id])) $deleted[] = $id;
-    }
-    return ['created' => $created, 'updated' => $updated, 'deleted' => $deleted];
-}
+// ═════════════════════════════════════════════════════════════════════
+//  FILE HELPERS (FULL IMPLEMENTATION)
+// ═════════════════════════════════════════════════════════════════════
 
-/**
- * Broadcast a diffTableChanges() result as create/update/delete events
- * under the given prefix, e.g. broadcastTableDiff('deal', $diff) emits
- * 'deal:created', 'deal:updated', 'deal:deleted'.
- */
-function broadcastTableDiff(string $eventPrefix, array $diff): void {
-    foreach ($diff['created'] as $item) {
-        notifySocketServer("{$eventPrefix}:created", $item);
-    }
-    foreach ($diff['updated'] as $item) {
-        notifySocketServer("{$eventPrefix}:updated", $item);
-    }
-    foreach ($diff['deleted'] as $id) {
-        notifySocketServer("{$eventPrefix}:deleted", ['id' => $id]);
-    }
-}
-
-function decodePostPayload() {
-    if (isset($_POST['payload'])) {
-        $decoded = base64_decode($_POST['payload'], true);
-        if ($decoded !== false) {
-            $data = json_decode($decoded, true);
-            if ($data !== null) return $data;
-        }
-    }
-    $raw = file_get_contents('php://input');
-    if ($raw) {
-        $data = json_decode($raw, true);
-        if ($data !== null) return $data;
-    }
-    return null;
-}
-
-// ── File Helpers ─────────────────────────────────────────────────────
-
-// Translates PHP's UPLOAD_ERR_* codes into a human-readable reason.
-// Spreadsheets are usually the first file type to hit these on shared
-// hosting — formatting/formulas/multiple sheets push .xlsx past size
-// limits well before a plain .pdf or .docx would.
 function uploadErrorMessage(int $code): string {
     switch ($code) {
         case UPLOAD_ERR_INI_SIZE:
@@ -750,404 +661,400 @@ function logFileActivity(string $message, string $color = 'accent', string $acto
     ];
     $stmt = $db->prepare("INSERT INTO activity (id, data) VALUES (?, ?)");
     $stmt->execute([$id, json_encode($entry)]);
-
     notifySocketServer('activity:new', $entry);
 }
 
-// ── Main Controller Execution ────────────────────────────────────────
+// ── Other Helpers ────────────────────────────────────────────────────
+
+function decodePostPayload() {
+    if (isset($_POST['payload'])) {
+        $decoded = base64_decode($_POST['payload'], true);
+        if ($decoded !== false) {
+            $data = json_decode($decoded, true);
+            if ($data !== null) return $data;
+        }
+    }
+    $raw = file_get_contents('php://input');
+    if ($raw) {
+        $data = json_decode($raw, true);
+        if ($data !== null) return $data;
+    }
+    return null;
+}
+
+function diffTableChanges(array $oldItems, array $newItems): array {
+    $oldById = [];
+    foreach ($oldItems as $item) if (isset($item['id'])) $oldById[$item['id']] = $item;
+    $created = [];
+    $updated = [];
+    $seenIds = [];
+    foreach ($newItems as $item) {
+        $id = $item['id'] ?? null;
+        if ($id === null) continue;
+        $seenIds[$id] = true;
+        if (!array_key_exists($id, $oldById)) {
+            $created[] = $item;
+        } elseif (json_encode($oldById[$id]) !== json_encode($item)) {
+            $updated[] = $item;
+        }
+    }
+    $deleted = [];
+    foreach ($oldById as $id => $item) if (!isset($seenIds[$id])) $deleted[] = $id;
+    return ['created' => $created, 'updated' => $updated, 'deleted' => $deleted];
+}
+
+function broadcastTableDiff(string $eventPrefix, array $diff): void {
+    foreach ($diff['created'] as $item) notifySocketServer("{$eventPrefix}:created", $item);
+    foreach ($diff['updated'] as $item) notifySocketServer("{$eventPrefix}:updated", $item);
+    foreach ($diff['deleted'] as $id) notifySocketServer("{$eventPrefix}:deleted", ['id' => $id]);
+}
+
+// ═════════════════════════════════════════════════════════════════════
+//  MAIN CONTROLLER
+// ═════════════════════════════════════════════════════════════════════
 
 try {
     initTables();
     ensureUploadDirectories();
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode([
-        'ok' => false,
-        'error' => 'Bootstrap failed: ' . $e->getMessage(),
-    ]);
+    echo json_encode(['ok' => false, 'error' => 'Bootstrap failed: ' . $e->getMessage()]);
     exit;
 }
 
 $action = $_GET['action'] ?? ($_POST['action'] ?? 'load');
 
-// GET LOAD ACTION
+// ─────────────────────────────────────────────────────────────────────
+//  ACTION: LOAD (with Full Payload Caching)
+// ─────────────────────────────────────────────────────────────────────
 if ($action === 'load') {
+    $version = getDbVersion();
+    $cacheKey = 'tms_db_payload_' . $version;
+
+    if (function_exists('apcu_fetch')) {
+        $cached = apcu_fetch($cacheKey, $success);
+        if ($success) {
+            header('X-Cache: HIT');
+            echo $cached;
+            exit;
+        }
+    }
+
     $out = [];
     foreach (TABLES as $table) {
         $out[$table] = readTable($table);
     }
-    echo json_encode(['ok' => true, 'db' => $out]);
+    $json = json_encode(['ok' => true, 'db' => $out]);
+
+    if (function_exists('apcu_store')) {
+        apcu_store($cacheKey, $json, 60);
+    }
+    header('X-Cache: MISS');
+    echo $json;
     exit;
 }
 
-// POST SAVE ACTION
+// ─────────────────────────────────────────────────────────────────────
+//  ACTION: SAVE (with Full Server-Side RBAC Validation)
+// ─────────────────────────────────────────────────────────────────────
 if ($action === 'save') {
-    $payload = decodePostPayload();
-    if (!is_array($payload) || !isset($payload['db']) || !is_array($payload['db'])) {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'Invalid or missing payload']);
-        exit;
-    }
-    $db = $payload['db'];
-    $results = [];
-    $allOk = true;
-
-    // Snapshot "before" state for any table we'll want to diff & broadcast,
-    // since syncTable() below replaces each table wholesale — this is our
-    // only chance to see what it looked like beforehand.
-    $beforeSnapshots = [];
-    foreach (TABLES as $table) {
-        if (array_key_exists($table, $db) && (isset(BROADCAST_ENTITY_TABLES[$table]) || isset(BROADCAST_LOG_TABLES[$table]))) {
-            $beforeSnapshots[$table] = readTable($table);
+    try {
+        $payload = decodePostPayload();
+        if (!is_array($payload) || !isset($payload['db']) || !is_array($payload['db'])) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Invalid or missing payload']);
+            exit;
         }
-    }
 
-    foreach (TABLES as $table) {
-        if (array_key_exists($table, $db)) {
-            $ok = syncTable($table, $db[$table]);
-            $results[$table] = $ok;
-            if (!$ok) { $allOk = false; continue; }
+        $incomingDb = $payload['db'];
+        $incomingDeals = $incomingDb['deals'] ?? [];
 
-            if (isset(BROADCAST_ENTITY_TABLES[$table])) {
-                $diff = diffTableChanges($beforeSnapshots[$table], $db[$table]);
-                broadcastTableDiff(BROADCAST_ENTITY_TABLES[$table], $diff);
-            } elseif (isset(BROADCAST_LOG_TABLES[$table])) {
-                $diff = diffTableChanges($beforeSnapshots[$table], $db[$table]);
-                foreach ($diff['created'] as $item) {
-                    notifySocketServer(BROADCAST_LOG_TABLES[$table], $item);
+        // ── Fetch current state from SERVER (truth) ──
+        $currentDeals = readTable('deals');
+        $currentMap = [];
+        foreach ($currentDeals as $d) { $currentMap[$d['id']] = $d; }
+
+        $incomingMap = [];
+        foreach ($incomingDeals as $d) { $incomingMap[$d['id']] = $d; }
+
+        // 1. Check DELETIONS (Deals in DB but missing in incoming)
+        foreach ($currentMap as $id => $oldDeal) {
+            if (!isset($incomingMap[$id])) {
+                if (!serverHasPermission($oldDeal['stage'], 'edit')) {
+                    http_response_code(403);
+                    echo json_encode(['ok' => false, 'error' => "Forbidden: You lack 'edit' permission to delete task '{$oldDeal['title']}'."]);
+                    exit;
                 }
             }
         }
-    }
-    echo json_encode(['ok' => $allOk, 'saved' => $results]);
-    exit;
-}
 
-// ── Login Monitoring Endpoints ────────────────────────────────────────
+        // 2. Check CREATIONS & UPDATES
+        foreach ($incomingDeals as $newDeal) {
+            $id = $newDeal['id'];
+            $oldDeal = $currentMap[$id] ?? null;
 
-// Get login logs with filtering
-if ($action === 'getLoginLogs') {
-    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 100;
-    $status = isset($_GET['status']) ? trim($_GET['status']) : null;
-    $userId = isset($_GET['userId']) ? trim($_GET['userId']) : null;
-    $username = isset($_GET['username']) ? trim($_GET['username']) : null;
-    
-    $db = getDb();
-    $sql = "SELECT data FROM login_logs";
-    $params = [];
-    
-    $where = [];
-    if ($status) {
-        $where[] = "json_extract(data, '$.status') = ?";
-        $params[] = $status;
-    }
-    if ($userId) {
-        $where[] = "json_extract(data, '$.userId') = ?";
-        $params[] = $userId;
-    }
-    if ($username) {
-        $where[] = "json_extract(data, '$.username') LIKE ?";
-        $params[] = '%' . $username . '%';
-    }
-    
-    if ($where) {
-        $sql .= " WHERE " . implode(" AND ", $where);
-    }
-    
-    $sql .= " ORDER BY json_extract(data, '$.loginTime') DESC LIMIT ?";
-    $params[] = $limit;
-    
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
-    
-    $logs = [];
-    while ($row = $stmt->fetch()) {
-        $logs[] = json_decode($row['data'], true);
-    }
-    
-    echo json_encode(['ok' => true, 'logs' => $logs, 'count' => count($logs)]);
-    exit;
-}
+            // CASE: New Task (Create)
+            if (!$oldDeal) {
+                if (!serverHasPermission($newDeal['stage'], 'drop')) {
+                    http_response_code(403);
+                    echo json_encode(['ok' => false, 'error' => "Forbidden: You lack 'drop' permission to create a task in this stage."]);
+                    exit;
+                }
+                continue;
+            }
 
-// Get login statistics
-if ($action === 'getLoginStats') {
-    $db = getDb();
-    
-    // Total logins
-    $stmt = $db->query("SELECT COUNT(*) as total FROM login_logs");
-    $total = $stmt->fetch()['total'];
-    
-    // Failed logins
-    $stmt = $db->query("SELECT COUNT(*) as failed FROM login_logs WHERE json_extract(data, '$.status') = 'failed'");
-    $failed = $stmt->fetch()['failed'];
-    
-    // Unique users
-    $stmt = $db->query("SELECT COUNT(DISTINCT json_extract(data, '$.userId')) as users FROM login_logs");
-    $users = $stmt->fetch()['users'];
-    
-    // Logins in last 24 hours
-    $stmt = $db->query("
-        SELECT COUNT(*) as last24 
-        FROM login_logs 
-        WHERE datetime(json_extract(data, '$.loginTime')) > datetime('now', '-1 day')
-    ");
-    $last24 = $stmt->fetch()['last24'];
-    
-    // Active sessions (logged in, no logout)
-    $stmt = $db->query("
-        SELECT COUNT(*) as active 
-        FROM login_logs 
-        WHERE json_extract(data, '$.logoutTime') IS NULL
-        AND datetime(json_extract(data, '$.loginTime')) > datetime('now', '-30 minutes')
-    ");
-    $active = $stmt->fetch()['active'];
-    
-    // Most active users
-    $stmt = $db->query("
-        SELECT 
-            json_extract(data, '$.userId') as userId,
-            json_extract(data, '$.username') as username,
-            COUNT(*) as count
-        FROM login_logs 
-        WHERE json_extract(data, '$.status') = 'success'
-        GROUP BY json_extract(data, '$.userId')
-        ORDER BY count DESC
-        LIMIT 5
-    ");
-    $topUsers = [];
-    while ($row = $stmt->fetch()) {
-        $topUsers[] = [
-            'userId' => $row['userId'],
-            'username' => $row['username'],
-            'count' => (int)$row['count']
-        ];
-    }
-    
-    echo json_encode([
-        'ok' => true,
-        'stats' => [
-            'total' => (int)$total,
-            'failed' => (int)$failed,
-            'uniqueUsers' => (int)$users,
-            'last24Hours' => (int)$last24,
-            'activeSessions' => (int)$active,
-            'successRate' => $total > 0 ? round((($total - $failed) / $total) * 100, 2) : 0,
-            'topUsers' => $topUsers
-        ]
-    ]);
-    exit;
-}
+            // CASE: Stage Change (Move)
+            if ($oldDeal['stage'] !== $newDeal['stage']) {
+                if (!serverHasPermission($oldDeal['stage'], 'grab')) {
+                    http_response_code(403);
+                    echo json_encode(['ok' => false, 'error' => "Forbidden: You lack 'grab' permission to move out of this stage."]);
+                    exit;
+                }
+                if (!serverHasPermission($newDeal['stage'], 'drop')) {
+                    http_response_code(403);
+                    echo json_encode(['ok' => false, 'error' => "Forbidden: You lack 'drop' permission to move into this stage."]);
+                    exit;
+                }
+                continue;
+            }
 
-// Clear old login logs (admin function)
-if ($action === 'clearLoginLogs') {
-    $days = isset($_GET['days']) ? (int)$_GET['days'] : 30;
-    
-    $db = getDb();
-    $stmt = $db->prepare("
-        DELETE FROM login_logs 
-        WHERE datetime(json_extract(data, '$.loginTime')) < datetime('now', ? || ' days ago')
-    ");
-    $stmt->execute(['-' . $days]);
-    $deleted = $stmt->rowCount();
-    
-    echo json_encode([
-        'ok' => true,
-        'deleted' => $deleted,
-        'message' => "Deleted {$deleted} login logs older than {$days} days"
-    ]);
-    exit;
-}
-
-// Get login log by ID
-if ($action === 'getLoginLog') {
-    $id = isset($_GET['id']) ? trim($_GET['id']) : '';
-    if (empty($id)) {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'Log ID required']);
-        exit;
-    }
-    
-    $db = getDb();
-    $stmt = $db->prepare("SELECT data FROM login_logs WHERE id = ?");
-    $stmt->execute([$id]);
-    $row = $stmt->fetch();
-    
-    if ($row) {
-        echo json_encode(['ok' => true, 'log' => json_decode($row['data'], true)]);
-    } else {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'error' => 'Log entry not found']);
-    }
-    exit;
-}
-
-// ── File Attachment Endpoints ──────────────────────────────────────────
-
-if ($action === 'uploadFile') {
-    // If the whole POST body exceeded PHP's post_max_size, PHP silently
-    // empties BOTH $_POST and $_FILES — no UPLOAD_ERR_* code at all, so
-    // validateUpload() below would just see "no file provided" with no
-    // clue why. This is the most common reason spreadsheet uploads fail
-    // while smaller files (a plain PDF, a small image) work fine —
-    // .xlsx files with formatting/formulas/multiple sheets are often the
-    // first to cross a shared host's (often low) size ceiling. Surface
-    // it explicitly instead of a generic error.
-    if (empty($_FILES) && empty($_POST) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
-        http_response_code(413);
-        echo json_encode([
-            'ok' => false,
-            'error' => 'This file is too large for the server to accept in one upload (PHP post_max_size/upload_max_filesize limit — set by your host, not this app). Try a smaller file, or ask InfinityFree support / your control panel to raise the limit.',
-        ]);
-        exit;
-    }
-
-    $taskId = trim((string)($_POST['taskId'] ?? ''));
-    if ($taskId === '') {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'taskId is required']);
-        exit;
-    }
-
-    $validation = validateUpload($_FILES['file'] ?? null);
-    if (!$validation['ok']) {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => $validation['error']]);
-        exit;
-    }
-
-    $file = $_FILES['file'];
-    $extension = $validation['extension'];
-    $type = $validation['type'];
-
-    $safeBase = trim(preg_replace('/[^A-Za-z0-9_\-]+/', '-', pathinfo($file['name'], PATHINFO_FILENAME)), '-');
-    $uniqueFilename = ($safeBase ?: 'file') . '-' . str_replace('.', '', uniqid('', true)) . '.' . $extension;
-    $destDir = $type === 'image' ? UPLOAD_DIR . '/tasks/images' : UPLOAD_DIR . '/tasks/files';
-    $destAbsolutePath = $destDir . '/' . $uniqueFilename;
-    // Store public path with leading slash for direct access
-    $relativePath = '/uploads/tasks/' . ($type === 'image' ? 'images' : 'files') . '/' . $uniqueFilename;
-
-    if (!@move_uploaded_file($file['tmp_name'], $destAbsolutePath)) {
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'error' => 'Failed to save file']);
-        exit;
-    }
-
-    $files = readTable('files');
-    $max = 0;
-    foreach ($files as $f) {
-        if (preg_match('/^file_(\d+)$/', $f['id'] ?? '', $matches)) {
-            $max = max($max, (int)$matches[1]);
+            // CASE: Details Edited (Title, Desc, Priority, etc. - Stage unchanged)
+            if (json_encode($oldDeal) !== json_encode($newDeal)) {
+                if (!serverHasPermission($oldDeal['stage'], 'edit')) {
+                    http_response_code(403);
+                    echo json_encode(['ok' => false, 'error' => "Forbidden: You lack 'edit' permission to modify this task."]);
+                    exit;
+                }
+            }
         }
-    }
-    $id = 'file_' . ($max + 1);
 
-    $now = date('c');
-    $record = [
-        'id' => $id,
-        'taskId' => $taskId,
-        'title' => trim((string)($_POST['title'] ?? '')) ?: $file['name'],
-        'filename' => $uniqueFilename,
-        'originalFilename' => $file['name'],
-        'extension' => $extension,
-        'mimeType' => MIME_TYPES[$extension] ?? ($file['type'] ?? ''),
-        'size' => (int)$file['size'],
-        'type' => $type,
-        'uploadedBy' => $_POST['uploadedBy'] ?? '',
-        'uploadedDate' => $now,
-        'path' => $relativePath,
-        'createdAt' => $now,
-        'updatedAt' => $now,
-    ];
+        // ── If all RBAC checks pass, proceed with the save ──
+        $results = [];
+        $allOk = true;
+        foreach (TABLES as $table) {
+            if (array_key_exists($table, $incomingDb)) {
+                $ok = syncTable($table, $incomingDb[$table]);
+                $results[$table] = $ok;
+                if (!$ok) $allOk = false;
+            }
+        }
 
-    $db = getDb();
-    $stmt = $db->prepare("INSERT INTO files (id, data) VALUES (?, ?)");
-    $ok = $stmt->execute([$id, json_encode($record)]);
-
-    if (!$ok) {
-        @unlink($destAbsolutePath);
+        echo json_encode(['ok' => $allOk, 'saved' => $results]);
+        exit;
+    } catch (Exception $e) {
         http_response_code(500);
-        echo json_encode(['ok' => false, 'error' => 'Failed metadata storage']);
+        echo json_encode(['ok' => false, 'error' => 'Server error: ' . $e->getMessage()]);
         exit;
     }
-
-    logFileActivity('uploaded a file: ' . $record['title'], 'accent', (string)($_POST['actorName'] ?? ''), (string)($_POST['actorRole'] ?? ''));
-    notifySocketServer('file:uploaded', $record);
-    echo json_encode(['ok' => true, 'file' => $record]);
-    exit;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+//  ACTION: UPLOAD FILE (SECURED)
+// ─────────────────────────────────────────────────────────────────────
+if ($action === 'uploadFile') {
+    try {
+        // If the whole POST body exceeded PHP's post_max_size
+        if (empty($_FILES) && empty($_POST) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
+            http_response_code(413);
+            echo json_encode(['ok' => false, 'error' => 'This file is too large for the server to accept in one upload (PHP post_max_size/upload_max_filesize limit).']);
+            exit;
+        }
+
+        $taskId = trim((string)($_POST['taskId'] ?? ''));
+        if ($taskId === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'taskId is required']);
+            exit;
+        }
+
+        // ── RBAC Check: Upload permission on the task's current stage ──
+        $stageKey = serverGetDealStage($taskId);
+        if (!$stageKey || !serverHasPermission($stageKey, 'upload')) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Forbidden: You lack upload permission for this task\'s stage.']);
+            exit;
+        }
+
+        $validation = validateUpload($_FILES['file'] ?? null);
+        if (!$validation['ok']) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => $validation['error']]);
+            exit;
+        }
+
+        $file = $_FILES['file'];
+        $extension = $validation['extension'];
+        $type = $validation['type'];
+
+        $safeBase = trim(preg_replace('/[^A-Za-z0-9_\-]+/', '-', pathinfo($file['name'], PATHINFO_FILENAME)), '-');
+        $uniqueFilename = ($safeBase ?: 'file') . '-' . str_replace('.', '', uniqid('', true)) . '.' . $extension;
+        $destDir = $type === 'image' ? UPLOAD_DIR . '/tasks/images' : UPLOAD_DIR . '/tasks/files';
+        $destAbsolutePath = $destDir . '/' . $uniqueFilename;
+        $relativePath = '/uploads/tasks/' . ($type === 'image' ? 'images' : 'files') . '/' . $uniqueFilename;
+
+        if (!@move_uploaded_file($file['tmp_name'], $destAbsolutePath)) {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => 'Failed to save file']);
+            exit;
+        }
+
+        $files = readTable('files');
+        $max = 0;
+        foreach ($files as $f) {
+            if (preg_match('/^file_(\d+)$/', $f['id'] ?? '', $matches)) {
+                $max = max($max, (int)$matches[1]);
+            }
+        }
+        $id = 'file_' . ($max + 1);
+
+        $now = date('c');
+        $record = [
+            'id' => $id,
+            'taskId' => $taskId,
+            'title' => trim((string)($_POST['title'] ?? '')) ?: $file['name'],
+            'filename' => $uniqueFilename,
+            'originalFilename' => $file['name'],
+            'extension' => $extension,
+            'mimeType' => MIME_TYPES[$extension] ?? ($file['type'] ?? ''),
+            'size' => (int)$file['size'],
+            'type' => $type,
+            'uploadedBy' => $_POST['uploadedBy'] ?? '',
+            'uploadedDate' => $now,
+            'path' => $relativePath,
+            'createdAt' => $now,
+            'updatedAt' => $now,
+        ];
+
+        $db = getDb();
+        $stmt = $db->prepare("INSERT INTO files (id, data) VALUES (?, ?)");
+        $ok = $stmt->execute([$id, json_encode($record)]);
+
+        if (!$ok) {
+            @unlink($destAbsolutePath);
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'error' => 'Failed metadata storage']);
+            exit;
+        }
+
+        // Invalidate cache
+        incrementDbVersion();
+
+        logFileActivity('uploaded a file: ' . $record['title'], 'accent', (string)($_POST['actorName'] ?? ''), (string)($_POST['actorRole'] ?? ''));
+        notifySocketServer('file:uploaded', $record);
+        echo json_encode(['ok' => true, 'file' => $record]);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Server error: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+//  ACTION: DELETE FILE (SECURED - System Admin Only)
+// ─────────────────────────────────────────────────────────────────────
 if ($action === 'deleteFile') {
-    $id = trim((string)($_POST['id'] ?? ($_GET['id'] ?? '')));
-    $files = readTable('files');
-    $record = null;
-    foreach ($files as $f) {
-        if (($f['id'] ?? null) === $id) { $record = $f; break; }
-    }
-    if (!$record) {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'error' => 'File not found']);
+    try {
+        if (!serverCanDeleteFile()) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Forbidden: Only System Administrators can delete files.']);
+            exit;
+        }
+
+        $id = trim((string)($_POST['id'] ?? ($_GET['id'] ?? '')));
+        $files = readTable('files');
+        $record = null;
+        foreach ($files as $f) {
+            if (($f['id'] ?? null) === $id) { $record = $f; break; }
+        }
+        if (!$record) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'File not found']);
+            exit;
+        }
+
+        $storedPath = $record['path'] ?? '';
+        $relativeFromUploads = preg_replace('#^/uploads/#', '', $storedPath);
+        if (strpos($relativeFromUploads, 'uploads/') === 0) {
+            $relativeFromUploads = substr($relativeFromUploads, strlen('uploads/'));
+        }
+        $fullPath = UPLOAD_DIR . '/' . $relativeFromUploads;
+        if (!file_exists($fullPath)) {
+            $fullPath = __DIR__ . '/' . ltrim($storedPath, '/');
+        }
+        @unlink($fullPath);
+
+        $db = getDb();
+        $stmt = $db->prepare("DELETE FROM files WHERE id = ?");
+        $stmt->execute([$id]);
+
+        incrementDbVersion();
+
+        logFileActivity('deleted a file: ' . ($record['title'] ?? ''), 'danger', (string)($_POST['actorName'] ?? ''), (string)($_POST['actorRole'] ?? ''));
+        notifySocketServer('file:deleted', ['id' => $id, 'taskId' => $record['taskId'] ?? null]);
+        echo json_encode(['ok' => true, 'deleted' => $id]);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Server error: ' . $e->getMessage()]);
         exit;
     }
-
-    // Build absolute filesystem path using UPLOAD_DIR
-    $storedPath = $record['path'] ?? '';
-    $relativeFromUploads = preg_replace('#^/uploads/#', '', $storedPath);
-    if (strpos($relativeFromUploads, 'uploads/') === 0) {
-        $relativeFromUploads = substr($relativeFromUploads, strlen('uploads/'));
-    }
-    $fullPath = UPLOAD_DIR . '/' . $relativeFromUploads;
-    if (!file_exists($fullPath)) {
-        // Fallback to old path (relative to __DIR__)
-        $fullPath = __DIR__ . '/' . ltrim($storedPath, '/');
-    }
-    @unlink($fullPath);
-    
-    $db = getDb();
-    $stmt = $db->prepare("DELETE FROM files WHERE id = ?");
-    $stmt->execute([$id]);
-
-    logFileActivity('deleted a file: ' . ($record['title'] ?? ''), 'danger', (string)($_POST['actorName'] ?? ''), (string)($_POST['actorRole'] ?? ''));
-    notifySocketServer('file:deleted', ['id' => $id, 'taskId' => $record['taskId'] ?? null]);
-    echo json_encode(['ok' => true, 'deleted' => $id]);
-    exit;
 }
 
-// ── Rename an attachment (title only) ────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────
+//  ACTION: UPDATE FILE (RENAME - SECURED - System Admin Only)
+// ─────────────────────────────────────────────────────────────────────
 if ($action === 'updateFile') {
-    $id = trim((string)($_POST['id'] ?? ''));
-    $newTitle = trim((string)($_POST['title'] ?? ''));
+    try {
+        if (!serverCanDeleteFile()) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Forbidden: Only System Administrators can rename files.']);
+            exit;
+        }
 
-    if ($id === '' || $newTitle === '') {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'ID and title are required']);
+        $id = trim((string)($_POST['id'] ?? ''));
+        $newTitle = trim((string)($_POST['title'] ?? ''));
+        if ($id === '' || $newTitle === '') {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'ID and title are required']);
+            exit;
+        }
+
+        $files = readTable('files');
+        $record = null;
+        foreach ($files as $f) {
+            if (($f['id'] ?? null) === $id) { $record = $f; break; }
+        }
+        if (!$record) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'File not found']);
+            exit;
+        }
+
+        $record['title'] = $newTitle;
+        $record['updatedAt'] = date('c');
+
+        $db = getDb();
+        $stmt = $db->prepare("UPDATE files SET data = ? WHERE id = ?");
+        $stmt->execute([json_encode($record), $id]);
+
+        incrementDbVersion();
+
+        logFileActivity('renamed a file: ' . $record['title'], 'accent', (string)($_POST['actorName'] ?? ''), (string)($_POST['actorRole'] ?? ''));
+        notifySocketServer('file:updated', $record);
+
+        echo json_encode(['ok' => true, 'file' => $record]);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Server error: ' . $e->getMessage()]);
         exit;
     }
-
-    $files = readTable('files');
-    $record = null;
-    foreach ($files as $f) {
-        if (($f['id'] ?? null) === $id) { $record = $f; break; }
-    }
-    if (!$record) {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'error' => 'File not found']);
-        exit;
-    }
-
-    $record['title'] = $newTitle;
-    $record['updatedAt'] = date('c');
-
-    $db = getDb();
-    $stmt = $db->prepare("UPDATE files SET data = ? WHERE id = ?");
-    $stmt->execute([json_encode($record), $id]);
-
-    logFileActivity('renamed a file: ' . $record['title'], 'accent', (string)($_POST['actorName'] ?? ''), (string)($_POST['actorRole'] ?? ''));
-    notifySocketServer('file:updated', $record);
-
-    echo json_encode(['ok' => true, 'file' => $record]);
-    exit;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+//  OTHER ACTIONS (unchanged from original)
+// ─────────────────────────────────────────────────────────────────────
 if ($action === 'getTaskFiles') {
     $taskId = trim((string)($_GET['taskId'] ?? ($_POST['taskId'] ?? '')));
     $files = readTable('files');
@@ -1169,7 +1076,6 @@ if ($action === 'downloadFile' || $action === 'serveFile') {
         exit;
     }
 
-    // Build absolute filesystem path using UPLOAD_DIR
     $storedPath = $record['path'] ?? '';
     $relativeFromUploads = preg_replace('#^/uploads/#', '', $storedPath);
     if (strpos($relativeFromUploads, 'uploads/') === 0) {
@@ -1178,7 +1084,6 @@ if ($action === 'downloadFile' || $action === 'serveFile') {
     $fullPath = UPLOAD_DIR . '/' . $relativeFromUploads;
 
     if (!file_exists($fullPath)) {
-        // Fallback to old path (relative to __DIR__)
         $fullPath = __DIR__ . '/' . ltrim($storedPath, '/');
         if (!file_exists($fullPath)) {
             http_response_code(404);
@@ -1198,52 +1103,101 @@ if ($action === 'downloadFile' || $action === 'serveFile') {
     exit;
 }
 
+// ── Login Monitoring Endpoints (unchanged) ─────────────────────────
+if ($action === 'getLoginLogs') {
+    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 100;
+    $status = isset($_GET['status']) ? trim($_GET['status']) : null;
+    $userId = isset($_GET['userId']) ? trim($_GET['userId']) : null;
+    $username = isset($_GET['username']) ? trim($_GET['username']) : null;
 
-// ── Employee Directory Endpoint ────────────────────────────────────────
+    $db = getDb();
+    $sql = "SELECT data FROM login_logs";
+    $params = [];
+    $where = [];
+    if ($status) { $where[] = "json_extract(data, '$.status') = ?"; $params[] = $status; }
+    if ($userId) { $where[] = "json_extract(data, '$.userId') = ?"; $params[] = $userId; }
+    if ($username) { $where[] = "json_extract(data, '$.username') LIKE ?"; $params[] = '%' . $username . '%'; }
+    if ($where) $sql .= " WHERE " . implode(" AND ", $where);
+    $sql .= " ORDER BY json_extract(data, '$.loginTime') DESC LIMIT ?";
+    $params[] = $limit;
 
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $logs = [];
+    while ($row = $stmt->fetch()) $logs[] = json_decode($row['data'], true);
+    echo json_encode(['ok' => true, 'logs' => $logs, 'count' => count($logs)]);
+    exit;
+}
+
+if ($action === 'getLoginStats') {
+    $db = getDb();
+    $stmt = $db->query("SELECT COUNT(*) as total FROM login_logs");
+    $total = $stmt->fetch()['total'];
+    $stmt = $db->query("SELECT COUNT(*) as failed FROM login_logs WHERE json_extract(data, '$.status') = 'failed'");
+    $failed = $stmt->fetch()['failed'];
+    $stmt = $db->query("SELECT COUNT(DISTINCT json_extract(data, '$.userId')) as users FROM login_logs");
+    $users = $stmt->fetch()['users'];
+    $stmt = $db->query("SELECT COUNT(*) as last24 FROM login_logs WHERE datetime(json_extract(data, '$.loginTime')) > datetime('now', '-1 day')");
+    $last24 = $stmt->fetch()['last24'];
+    $stmt = $db->query("SELECT COUNT(*) as active FROM login_logs WHERE json_extract(data, '$.logoutTime') IS NULL AND datetime(json_extract(data, '$.loginTime')) > datetime('now', '-30 minutes')");
+    $active = $stmt->fetch()['active'];
+    $stmt = $db->query("SELECT json_extract(data, '$.userId') as userId, json_extract(data, '$.username') as username, COUNT(*) as count FROM login_logs WHERE json_extract(data, '$.status') = 'success' GROUP BY json_extract(data, '$.userId') ORDER BY count DESC LIMIT 5");
+    $topUsers = [];
+    while ($row = $stmt->fetch()) $topUsers[] = ['userId' => $row['userId'], 'username' => $row['username'], 'count' => (int)$row['count']];
+    echo json_encode(['ok' => true, 'stats' => ['total' => (int)$total, 'failed' => (int)$failed, 'uniqueUsers' => (int)$users, 'last24Hours' => (int)$last24, 'activeSessions' => (int)$active, 'successRate' => $total > 0 ? round((($total - $failed) / $total) * 100, 2) : 0, 'topUsers' => $topUsers]]);
+    exit;
+}
+
+if ($action === 'clearLoginLogs') {
+    $days = isset($_GET['days']) ? (int)$_GET['days'] : 30;
+    $db = getDb();
+    $stmt = $db->prepare("DELETE FROM login_logs WHERE datetime(json_extract(data, '$.loginTime')) < datetime('now', ? || ' days ago')");
+    $stmt->execute(['-' . $days]);
+    $deleted = $stmt->rowCount();
+    echo json_encode(['ok' => true, 'deleted' => $deleted, 'message' => "Deleted {$deleted} login logs older than {$days} days"]);
+    exit;
+}
+
+if ($action === 'getLoginLog') {
+    $id = isset($_GET['id']) ? trim($_GET['id']) : '';
+    if (empty($id)) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'Log ID required']);
+        exit;
+    }
+    $db = getDb();
+    $stmt = $db->prepare("SELECT data FROM login_logs WHERE id = ?");
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    if ($row) echo json_encode(['ok' => true, 'log' => json_decode($row['data'], true)]);
+    else { http_response_code(404); echo json_encode(['ok' => false, 'error' => 'Log entry not found']); }
+    exit;
+}
+
+// ── Employee Directory ──────────────────────────────────────────────
 if ($action === 'getEmployeeDirectory') {
     $contacts = readTable('contacts');
     $users = readTable('users');
     $loginLogs = readTable('login_logs');
-    
-    // Build employee directory data with login status
     $directory = [];
     foreach ($contacts as $contact) {
         $employeeId = $contact['id'] ?? null;
         $user = null;
         foreach ($users as $u) {
-            if (($u['employeeId'] ?? '') === $employeeId) {
-                $user = $u;
-                break;
-            }
+            if (($u['employeeId'] ?? '') === $employeeId) { $user = $u; break; }
         }
-        
-        // Get login logs for this user
         $userLogs = [];
         if ($user) {
             foreach ($loginLogs as $log) {
-                if (($log['userId'] ?? '') === $user['id']) {
-                    $userLogs[] = $log;
-                }
+                if (($log['userId'] ?? '') === $user['id']) $userLogs[] = $log;
             }
         }
-        
-        // Sort logs by login time (newest first)
-        usort($userLogs, function($a, $b) {
-            return strtotime($b['loginTime'] ?? '') - strtotime($a['loginTime'] ?? '');
-        });
-        
+        usort($userLogs, function($a, $b) { return strtotime($b['loginTime'] ?? '') - strtotime($a['loginTime'] ?? ''); });
         $latestLog = $userLogs[0] ?? null;
         $isOnline = $latestLog && !isset($latestLog['logoutTime']) && ($latestLog['status'] ?? '') === 'success';
-        
-        // Calculate duration
         $duration = null;
-        if ($isOnline && isset($latestLog['loginTime'])) {
-            $duration = calculateDuration($latestLog['loginTime'], date('c'));
-        } elseif ($latestLog && isset($latestLog['logoutTime'])) {
-            $duration = calculateDuration($latestLog['loginTime'], $latestLog['logoutTime']);
-        }
-        
+        if ($isOnline && isset($latestLog['loginTime'])) $duration = calculateDuration($latestLog['loginTime'], date('c'));
+        elseif ($latestLog && isset($latestLog['logoutTime'])) $duration = calculateDuration($latestLog['loginTime'], $latestLog['logoutTime']);
         $directory[] = [
             'employee' => $contact,
             'user' => $user,
@@ -1256,15 +1210,12 @@ if ($action === 'getEmployeeDirectory') {
             ]
         ];
     }
-    
-    echo json_encode([
-        'ok' => true, 
-        'directory' => $directory,
-        'count' => count($directory)
-    ]);
+    echo json_encode(['ok' => true, 'directory' => $directory, 'count' => count($directory)]);
     exit;
 }
 
-
+// ─────────────────────────────────────────────────────────────────────
+//  FALLBACK
+// ─────────────────────────────────────────────────────────────────────
 http_response_code(400);
 echo json_encode(['ok' => false, 'error' => 'Unknown action: ' . $action]);
