@@ -9,7 +9,27 @@
  * All data is stored in a single SQLite database file (data/tms_database.sq3)
  * with a simple key-value table structure (id, data JSON) to keep the
  * schema flexible and match the original JavaScript data model.
+ *
+ * DATA-SAFETY RULES (these exist because earlier versions lost records):
+ *   1. The server NEVER replaces a table from a client snapshot. The client
+ *      sends only row-level changes (upsert + explicit delete ids); rows the
+ *      client did not touch are never modified or removed.
+ *   2. Seeding happens exactly once (meta.seeded flag) and never overwrites
+ *      existing rows or resets counters.
+ *   3. Counters only ever move forward (MAX-merge), so ids are never reused.
+ *   4. login_logs is server-owned (written by auth.php); clients can't write it.
+ *   5. activity / taskActivity are append-only from the client side.
+ *   6. A rolling file backup is taken before saves (always before big deletes).
  */
+
+// Never let PHP notices/deprecations leak into the response body: a single
+// "<b>Deprecated</b>: ..." line printed before the JSON makes it unparseable
+// and the app then cannot load any data. Problems are still written to the
+// server error log. (Typical trigger: PHP 8.4 + `array $x = null` style
+// signatures in socket_notifier.php.)
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE & ~E_STRICT);
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
@@ -79,7 +99,7 @@ const TABLES = [
 // This app saves whole-array table snapshots from the client (see the
 // 'save' action below) rather than per-record CRUD, so there's no single
 // point that already knows "this one deal changed". These maps tell the
-// 'save' handler which tables to diff old-vs-new after syncTable() and
+// 'save' handler which tables to broadcast row-level changes for in applyChanges() and
 // what Socket.IO event prefix to broadcast under — matching the listeners
 // in js/modules/socket-handler.js (e.g. 'deals' -> 'deal:created').
 const BROADCAST_ENTITY_TABLES = [
@@ -104,7 +124,18 @@ const BROADCAST_LOG_TABLES = [
 // enforced server-side after each save so the table can't grow forever.
 // Trimming keeps the newest rows by createdAt, never the rows a client
 // happened to have loaded most recently.
-const LOG_TABLE_MAX_ROWS = 500;
+const LOG_TABLE_MAX_ROWS = 500; // (not enforced — see notes; trimming would itself delete records)
+
+// Tables a client may change through action=save. 'counters' is MAX-merged
+// separately and 'login_logs' is deliberately absent: it is written only by
+// auth.php / logLoginAttempt() and a stale browser copy must never touch it.
+const CLIENT_WRITABLE_TABLES = [
+    'contacts', 'deals', 'tasks', 'notes', 'activity', 'taskActivity',
+    'departments', 'companies', 'roles', 'stages', 'users', 'files',
+];
+// Rows here are immutable once written: clients may add, never edit or delete.
+const APPEND_ONLY_TABLES = ['activity', 'taskActivity'];
+const JSON_FLAGS = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
 
 // ── Production-Safe Bootstrap Helpers ──────────────────────────────────
 
@@ -162,6 +193,7 @@ function getDb(): PDO {
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $pdo->exec('PRAGMA journal_mode = WAL;'); // High concurrency mode
+        $pdo->exec('PRAGMA busy_timeout = 10000;'); // wait for locks instead of failing instantly
     }
     return $pdo;
 }
@@ -177,6 +209,8 @@ function initTables(): void {
             $db->exec("CREATE TABLE IF NOT EXISTS {$table} (id TEXT PRIMARY KEY, data TEXT)");
         }
     }
+
+    $db->exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)");
 
     ensureSeeded();
     migrateDatabase(); // Run migration to ensure login_logs exists
@@ -283,32 +317,47 @@ function defaultSeed(): array {
 
 function ensureSeeded(): void {
     $db = getDb();
-    
-    // Check if stages are present; if empty, run initial seed
-    $stmt = $db->query("SELECT COUNT(*) as count FROM stages");
-    if ($stmt->fetch()['count'] == 0) {
-        $seed = defaultSeed();
-        $db->beginTransaction();
-        try {
-            foreach ($seed as $table => $items) {
-                if ($table === 'counters') {
-                    $cStmt = $db->prepare("INSERT OR REPLACE INTO counters (name, val) VALUES (?, ?)");
-                    foreach ($items as $name => $val) {
-                        $cStmt->execute([$name, $val]);
-                    }
-                } else {
-                    $iStmt = $db->prepare("INSERT OR REPLACE INTO {$table} (id, data) VALUES (?, ?)");
-                    foreach ($items as $item) {
-                        $id = $item['id'] ?? ($item['key'] ?? uniqid());
-                        $iStmt->execute([$id, json_encode($item)]);
+
+    // Already seeded (or adopted as an existing install): never touch data again.
+    if ($db->query("SELECT v FROM meta WHERE k = 'seeded'")->fetch()) {
+        return;
+    }
+
+    // BUG FIX: the old version re-seeded whenever the `stages` table was empty,
+    // using INSERT OR REPLACE. Any moment stages was empty (a stale client
+    // saving [], an admin deleting the last stage, ...) it overwrote the admin
+    // user / company / department / role rows and RESET every counter, which
+    // then caused id collisions and lost records. Seeding is now one-time.
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        // Re-check under the write lock so two simultaneous first requests can't both seed.
+        if (!$db->query("SELECT v FROM meta WHERE k = 'seeded'")->fetch()) {
+            $hasData = false;
+            foreach (['contacts', 'users', 'departments', 'companies', 'roles', 'stages', 'deals', 'tasks', 'notes'] as $t) {
+                if ((int)$db->query("SELECT COUNT(*) FROM {$t}")->fetchColumn() > 0) { $hasData = true; break; }
+            }
+
+            // Existing install that predates the flag → just adopt it, change nothing.
+            if (!$hasData) {
+                foreach (defaultSeed() as $table => $items) {
+                    if ($table === 'counters') {
+                        $cStmt = $db->prepare("INSERT OR IGNORE INTO counters (name, val) VALUES (?, ?)");
+                        foreach ($items as $name => $val) { $cStmt->execute([$name, $val]); }
+                    } else {
+                        $iStmt = $db->prepare("INSERT OR IGNORE INTO {$table} (id, data) VALUES (?, ?)");
+                        foreach ($items as $item) {
+                            $id = $item['id'] ?? ($item['key'] ?? uniqid());
+                            $iStmt->execute([$id, json_encode($item)]);
+                        }
                     }
                 }
             }
-            $db->commit();
-        } catch (Exception $e) {
-            $db->rollBack();
-            throw $e;
+            $db->prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('seeded', ?)")->execute([date('c')]);
         }
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        try { $db->exec('ROLLBACK'); } catch (Throwable $ignored) {}
+        throw $e;
     }
 }
 
@@ -587,7 +636,7 @@ function readTable(string $table): array {
 
     // Append-only log tables (activity, taskActivity) are always meant to
     // be read newest-first. There's no reliable INSERT/rowid ordering to
-    // lean on once rows can be merged in out of order (see syncTable()),
+    // lean on once rows can be merged in out of order (see applyChanges()),
     // so sort explicitly by the entry's own createdAt here.
     if (isset(BROADCAST_LOG_TABLES[$table])) {
         $stmt = $db->prepare("SELECT data FROM {$table} ORDER BY json_extract(data, '$.createdAt') DESC");
@@ -602,79 +651,134 @@ function readTable(string $table): array {
     return $out;
 }
 
-function syncTable(string $table, array $items): bool {
-    $db = getDb();
-    $db->beginTransaction();
+/**
+ * Row id for the key-value tables: `id`, or `key` for stages.
+ */
+function rowId($item): ?string {
+    if (!is_array($item)) return null;
+    $id = $item['id'] ?? ($item['key'] ?? null);
+    return (is_scalar($id) && (string)$id !== '') ? (string)$id : null;
+}
+
+/**
+ * Copy the SQLite file into data/backups before a save. Always done when a
+ * save deletes several rows (so a bad delete is recoverable); otherwise at
+ * most once every $minIntervalSec. Keeps the newest $keep copies.
+ */
+function backupDatabaseIfDue(bool $force = false, int $minIntervalSec = 21600, int $keep = 20): void {
     try {
-        if ($table === 'counters') {
-            $stmt = $db->prepare("INSERT OR REPLACE INTO counters (name, val) VALUES (?, ?)");
-            foreach ($items as $k => $v) {
-                $stmt->execute([$k, (int)$v]);
-            }
-        } else {
-            // Truncate and replace table data safely inside transaction
-            $db->exec("DELETE FROM {$table}");
-            $stmt = $db->prepare("INSERT INTO {$table} (id, data) VALUES (?, ?)");
-            foreach ($items as $item) {
-                $id = $item['id'] ?? ($item['key'] ?? str_replace('.', '', uniqid('', true)));
-                $stmt->execute([$id, json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
-            }
+        $dir = DATA_DIR . '/backups';
+        ensureDirectory($dir);
+        ensureHtaccess($dir, "Require all denied\n");
+
+        $stamp = $dir . '/.last_backup';
+        $age = file_exists($stamp) ? time() - (int)@filemtime($stamp) : PHP_INT_MAX;
+        if ($age < ($force ? 60 : $minIntervalSec)) return;
+        if (!file_exists(DB_FILE) || filesize(DB_FILE) === 0) return;
+
+        getDb()->exec('PRAGMA wal_checkpoint(TRUNCATE)'); // fold WAL into the main file first
+        $dest = $dir . '/tms_database_' . date('Ymd_His') . '.sq3';
+        if (@copy(DB_FILE, $dest)) {
+            @touch($stamp);
+            $all = glob($dir . '/tms_database_*.sq3') ?: [];
+            sort($all);
+            foreach (array_slice($all, 0, max(0, count($all) - $keep)) as $old) { @unlink($old); }
         }
-        $db->commit();
-        return true;
-    } catch (Exception $e) {
-        $db->rollBack();
-        return false;
+    } catch (Throwable $e) {
+        error_log('TMS backup failed: ' . $e->getMessage());
     }
 }
 
 /**
- * Compare an old and new snapshot of a table's rows (keyed by `id`) and
- * return which were created, updated (by value), or deleted. This is how
- * we recover per-record change events from syncTable()'s whole-array
- * replace, so the 'save' action can broadcast granular Socket.IO events
- * instead of "something changed, refetch everything".
+ * Apply row-level changes from a client in ONE transaction:
+ *   $changes = [ table => ['upsert' => [row, ...], 'delete' => [id, ...]] ]
+ * Only the listed rows are touched. Nothing is ever truncated or replaced
+ * wholesale, so a stale/empty client cache can no longer wipe records it
+ * never knew about (the old DELETE FROM + re-INSERT "syncTable" did exactly that).
+ * Counters are MAX-merged so they can never move backwards.
  */
-function diffTableChanges(array $oldItems, array $newItems): array {
-    $oldById = [];
-    foreach ($oldItems as $item) {
-        if (isset($item['id'])) $oldById[$item['id']] = $item;
-    }
-    $created = [];
-    $updated = [];
-    $seenIds = [];
-    foreach ($newItems as $item) {
-        $id = $item['id'] ?? null;
-        if ($id === null) continue;
-        $seenIds[$id] = true;
-        if (!array_key_exists($id, $oldById)) {
-            $created[] = $item;
-        } elseif (json_encode($oldById[$id]) !== json_encode($item)) {
-            $updated[] = $item;
-        }
-    }
-    $deleted = [];
-    foreach ($oldById as $id => $item) {
-        if (!isset($seenIds[$id])) $deleted[] = $id;
-    }
-    return ['created' => $created, 'updated' => $updated, 'deleted' => $deleted];
-}
+function applyChanges(array $changes, array $counters): array {
+    $db = getDb();
+    $report = [];
+    $events = [];
+    $conflicts = [];
 
-/**
- * Broadcast a diffTableChanges() result as create/update/delete events
- * under the given prefix, e.g. broadcastTableDiff('deal', $diff) emits
- * 'deal:created', 'deal:updated', 'deal:deleted'.
- */
-function broadcastTableDiff(string $eventPrefix, array $diff): void {
-    foreach ($diff['created'] as $item) {
-        notifySocketServer("{$eventPrefix}:created", $item);
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        foreach (CLIENT_WRITABLE_TABLES as $table) {
+            $c = $changes[$table] ?? null;
+            if (!is_array($c)) continue;
+
+            $upserts    = is_array($c['upsert'] ?? null) ? $c['upsert'] : [];
+            // ids the client believes it just CREATED. If one already exists on the
+            // server with different content, two clients picked the same new id —
+            // we must refuse to overwrite the other person's record.
+            $created    = is_array($c['created'] ?? null) ? array_flip(array_map('strval', $c['created'])) : [];
+            $deletes    = is_array($c['delete'] ?? null) ? $c['delete'] : [];
+            $appendOnly = in_array($table, APPEND_ONLY_TABLES, true);
+            $prefix     = BROADCAST_ENTITY_TABLES[$table] ?? null;
+            $logEvent   = BROADCAST_LOG_TABLES[$table] ?? null;
+
+            $find   = $db->prepare("SELECT data FROM {$table} WHERE id = ?");
+            $write  = $db->prepare(($appendOnly ? 'INSERT OR IGNORE' : 'INSERT OR REPLACE') . " INTO {$table} (id, data) VALUES (?, ?)");
+            $remove = $db->prepare("DELETE FROM {$table} WHERE id = ?");
+            $n = ['upserted' => 0, 'deleted' => 0, 'skipped' => 0];
+
+            foreach ($upserts as $item) {
+                $id = rowId($item);
+                if ($id === null) { $n['skipped']++; continue; }
+                $json = json_encode($item, JSON_FLAGS);
+
+                $find->execute([$id]);
+                $old = $find->fetchColumn();
+                $find->closeCursor();
+
+                if ($old !== false && ($appendOnly || $old === $json)) continue; // immutable / no-op
+                if ($old !== false && isset($created[$id])) { $conflicts[$table][] = $id; continue; } // id collision
+
+                $write->execute([$id, $json]);
+                $n['upserted']++;
+                if ($logEvent)       $events[] = [$logEvent, $item];
+                elseif ($prefix)     $events[] = [$prefix . ($old === false ? ':created' : ':updated'), $item];
+            }
+
+            if (!$appendOnly) {
+                foreach ($deletes as $rawId) {
+                    if (!is_scalar($rawId)) continue;
+                    $id = (string)$rawId;
+                    $find->execute([$id]);
+                    $exists = $find->fetchColumn() !== false;
+                    $find->closeCursor();
+                    if (!$exists) continue;
+                    $remove->execute([$id]);
+                    $n['deleted']++;
+                    if ($prefix) $events[] = [$prefix . ':deleted', ['id' => $id]];
+                }
+            }
+            $report[$table] = $n;
+        }
+
+        // Counters: forward-only.
+        $cIns = $db->prepare("INSERT OR IGNORE INTO counters (name, val) VALUES (?, 0)");
+        $cUp  = $db->prepare("UPDATE counters SET val = ? WHERE name = ? AND val < ?");
+        foreach ($counters as $name => $val) {
+            if (!is_string($name) || !in_array($name, TABLES, true) || $name === 'counters') continue;
+            $v = (int)$val;
+            $cIns->execute([$name]);
+            $cUp->execute([$v, $name, $v]);
+        }
+
+        $db->exec('COMMIT');
+    } catch (Throwable $e) {
+        try { $db->exec('ROLLBACK'); } catch (Throwable $ignored) {}
+        throw $e;
     }
-    foreach ($diff['updated'] as $item) {
-        notifySocketServer("{$eventPrefix}:updated", $item);
+
+    // Broadcast only after the write lock is released (HTTP calls can be slow).
+    foreach ($events as [$event, $payload]) {
+        notifySocketServer($event, $payload);
     }
-    foreach ($diff['deleted'] as $id) {
-        notifySocketServer("{$eventPrefix}:deleted", ['id' => $id]);
-    }
+    return ['report' => $report, 'conflicts' => $conflicts];
 }
 
 function decodePostPayload() {
@@ -780,46 +884,46 @@ if ($action === 'load') {
     exit;
 }
 
-// POST SAVE ACTION
+// POST SAVE ACTION  (row-level delta protocol, v2)
 if ($action === 'save') {
     $payload = decodePostPayload();
-    if (!is_array($payload) || !isset($payload['db']) || !is_array($payload['db'])) {
+    if (!is_array($payload)) {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'Invalid or missing payload']);
         exit;
     }
-    $db = $payload['db'];
-    $results = [];
-    $allOk = true;
 
-    // Snapshot "before" state for any table we'll want to diff & broadcast,
-    // since syncTable() below replaces each table wholesale — this is our
-    // only chance to see what it looked like beforehand.
-    $beforeSnapshots = [];
-    foreach (TABLES as $table) {
-        if (array_key_exists($table, $db) && (isset(BROADCAST_ENTITY_TABLES[$table]) || isset(BROADCAST_LOG_TABLES[$table]))) {
-            $beforeSnapshots[$table] = readTable($table);
-        }
+    // Old clients (cached JS) send {db: {...whole tables...}}. Accepting that
+    // is exactly what wiped data, so refuse it and make the browser update.
+    if (!isset($payload['changes']) || !is_array($payload['changes'])) {
+        http_response_code(409);
+        echo json_encode([
+            'ok' => false,
+            'code' => 'client_outdated',
+            'error' => 'Outdated app version in this browser — hard refresh (Ctrl+F5) and try again. Nothing was changed.',
+        ]);
+        exit;
     }
 
-    foreach (TABLES as $table) {
-        if (array_key_exists($table, $db)) {
-            $ok = syncTable($table, $db[$table]);
-            $results[$table] = $ok;
-            if (!$ok) { $allOk = false; continue; }
-
-            if (isset(BROADCAST_ENTITY_TABLES[$table])) {
-                $diff = diffTableChanges($beforeSnapshots[$table], $db[$table]);
-                broadcastTableDiff(BROADCAST_ENTITY_TABLES[$table], $diff);
-            } elseif (isset(BROADCAST_LOG_TABLES[$table])) {
-                $diff = diffTableChanges($beforeSnapshots[$table], $db[$table]);
-                foreach ($diff['created'] as $item) {
-                    notifySocketServer(BROADCAST_LOG_TABLES[$table], $item);
-                }
-            }
-        }
+    $totalDeletes = 0;
+    foreach ($payload['changes'] as $t => $c) {
+        if (is_array($c) && is_array($c['delete'] ?? null)) $totalDeletes += count($c['delete']);
     }
-    echo json_encode(['ok' => $allOk, 'saved' => $results]);
+    backupDatabaseIfDue($totalDeletes >= 5);
+
+    try {
+        $applied = applyChanges($payload['changes'], is_array($payload['counters'] ?? null) ? $payload['counters'] : []);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'Save failed (no partial changes were kept): ' . $e->getMessage()]);
+        exit;
+    }
+    echo json_encode([
+        'ok' => true,
+        'saved' => $applied['report'],
+        'conflicts' => (object)$applied['conflicts'],   // {table: [ids the server refused to overwrite]}
+        'counters' => readTable('counters'),
+    ]);
     exit;
 }
 

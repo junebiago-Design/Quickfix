@@ -1,4 +1,12 @@
 <?php
+// Never let PHP notices/deprecations leak into the response body: a single
+// "<b>Deprecated</b>: ..." line printed before the JSON makes it unparseable
+// and the app then cannot load any data. Problems are still written to the
+// server error log. (Typical trigger: PHP 8.4 + `array $x = null` style
+// signatures in socket_notifier.php.)
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE & ~E_STRICT);
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
 session_start();
 require_once __DIR__ . '/client_ip.php';
 
@@ -460,7 +468,7 @@ if ($action === 'login') {
     $_SESSION['login_time'] = time(); // Track session start time
 
     // Redirect to main application
-    header('Location: index.php');
+    header('Location: dashboard.php');
     exit;
 }
 
@@ -483,7 +491,7 @@ if ($action === 'logout') {
     }
     
     session_destroy();
-    header('Location: login.html');
+    header('Location: dashboard.html');
     exit;
 }
 
@@ -539,6 +547,6 @@ function formatDuration($seconds) {
 }
 
 // Unknown action fallback
-header('Location: login.html');
+header('Location: dashboard.php');
 exit;
 ?>
